@@ -521,21 +521,25 @@ function MLModelsTab(){
 
   async function runClassifier(){
     setMlLoading(true);setMlResult(null);setMlOutput("");
-    const prompt=`You are a CICIDS-2018 ML ensemble. Classify this network flow. Respond ONLY with valid JSON, no markdown:\n{"label":"DDoS|Bot|PortScan|Brute Force-Web|Web Attacks-BF|Infiltration|BENIGN","confidence":<0-100>,"threat_score":<0.000-1.000>,"status":"BLOCKED|MONITOR|PASS","mitre_id":"<TA####>","mitre_tactic":"<name>","explanation":"<2 sentences>","model_votes":{"random_forest":{"label":"...","confidence":<0-100>},"xgboost":{"label":"...","confidence":<0-100>},"isolation_forest":{"label":"...","anomaly_score":<0.0-1.0>},"lstm":{"label":"...","confidence":<0-100>},"ensemble":{"label":"...","confidence":<0-100>}},"top_features":["<feat>: <val> — <impact>","<feat>: <val> — <impact>","<feat>: <val> — <impact>"]}\nFlow: Bytes/s:${mlFields.flowBytes} Pkts/s:${mlFields.flowPkts} SYN:${mlFields.synFlags} RST:${mlFields.rstFlags} IAT:${mlFields.iatMean}s PktStd:${mlFields.pktLenStd} Active:${mlFields.activeMean}s Dur:${mlFields.duration}s`;
-    try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,
-          messages:[{role:"user",content:prompt}]}),
-      });
-      if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err?.error?.message||`HTTP ${res.status}`);}
-      const data=await res.json();
-      const text=data.content?.find(b=>b.type==="text")?.text||"";
-      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
-      setMlResult(parsed);
-      setMlHistory(h=>[{...mlFields,...parsed,ts:nowUTC()},...h.slice(0,9)]);
-    }catch(e){setMlResult({error:`Classification failed — ${e.message||"API error"}`});}
-    setMlLoading(false);
+    const prompt=`You are a CICIDS-2018 ML ensemble. Classify this network flow. Respond ONLY with valid JSON, no markdown, no backticks:
+{"label":"DDoS|Bot|PortScan|Brute Force-Web|Web Attacks-BF|Infiltration|BENIGN","confidence":<0-100>,"threat_score":<0.000-1.000>,"status":"BLOCKED|MONITOR|PASS","mitre_id":"<TA####>","mitre_tactic":"<tactic name>","explanation":"<2 sentences>","model_votes":{"random_forest":{"label":"...","confidence":<0-100>},"xgboost":{"label":"...","confidence":<0-100>},"isolation_forest":{"label":"...","anomaly_score":<0.0-1.0>},"lstm":{"label":"...","confidence":<0-100>},"ensemble":{"label":"...","confidence":<0-100>}},"top_features":["<feat>: <val> — <impact>","<feat>: <val> — <impact>","<feat>: <val> — <impact>"]}
+Flow: Bytes/s:${mlFields.flowBytes} Pkts/s:${mlFields.flowPkts} SYN:${mlFields.synFlags} RST:${mlFields.rstFlags} IAT:${mlFields.iatMean}s PktStd:${mlFields.pktLenStd} Active:${mlFields.activeMean}s Dur:${mlFields.duration}s`;
+    let raw="";
+    await streamClaude(
+      prompt,
+      tok=>{raw+=tok;},
+      ()=>{
+        try{
+          const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
+          setMlResult(parsed);
+          setMlHistory(h=>[{...mlFields,...parsed,ts:nowUTC()},...h.slice(0,9)]);
+        }catch(e){
+          setMlResult({error:"Classification failed — could not parse response"});
+        }
+        setMlLoading(false);
+      },
+      800
+    );
   }
 
   const sc=mlResult&&!mlResult.error
