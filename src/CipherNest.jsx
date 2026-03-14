@@ -822,15 +822,20 @@ function AIAnalysisTab({totalThreats,totalBenign,anomScores,blockedIPs,labelCoun
 
   async function runQuery(q){
     if(!q.trim()||streaming)return;
-    setStreaming(true);setOutput("");
+    setStreaming(true);setOutput("");setHistory(h=>h);
     const fullPrompt=`You are an expert AI cybersecurity analyst embedded in the CipherNest threat intelligence platform.\n\n${sessionContext}\n\nUser query: ${q}\n\nRespond with a professional, structured analysis. Use clear sections where appropriate.`;
-    let txt="";
-    await streamClaude(fullPrompt,tok=>{txt+=tok;setOutput(p=>p+tok);},()=>{
-      setStreaming(false);
-      setHistory(h=>[{q,a:txt,ts:nowUTC()},...h.slice(0,9)]);
-      setOutput("");
-      setHistory(h=>{if(h[0]&&!h[0].a)return[{...h[0],a:txt},...h.slice(1)];return h;});
-    },800);
+    let accumulated="";
+    await streamClaude(
+      fullPrompt,
+      tok=>{accumulated+=tok;setOutput(accumulated);},
+      ()=>{
+        const final=accumulated||"Analysis complete — no response received.";
+        setOutput(final);
+        setStreaming(false);
+        setHistory(h=>[{q,a:final,ts:nowUTC()},...h.slice(0,9)]);
+      },
+      800
+    );
   }
 
   const lastResult=history[0];
@@ -857,7 +862,7 @@ function AIAnalysisTab({totalThreats,totalBenign,anomScores,blockedIPs,labelCoun
         <PTitle>⚡ Quick Analysis Presets</PTitle>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {PRESETS.map(p=>(
-            <button key={p.label} onClick={()=>{setActivePreset(p.label);setQuery(p.prompt);}}
+            <button key={p.label} onClick={()=>{setActivePreset(p.label);setQuery(p.prompt);setTimeout(()=>runQuery(p.prompt),0);}}
               style={{padding:"7px 10px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,
                 letterSpacing:1,textAlign:"left",cursor:"pointer",textTransform:"uppercase",transition:"all .15s",
                 border:`1px solid ${activePreset===p.label?C.purple:C.borderBright}`,
@@ -914,38 +919,31 @@ function AIAnalysisTab({totalThreats,totalBenign,anomScores,blockedIPs,labelCoun
         </div>
       </Panel>
 
-      {(streaming||output)&&(
-        <Panel color={C.purple}>
+      {/* Always show result panel once we have content — streaming live or completed */}
+      {(streaming||output||lastResult)&&(
+        <Panel color={streaming?C.purple:C.teal}>
           <PTitle>
-            <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,
-              boxShadow:`0 0 10px ${C.purple}`,display:"inline-block",
+            <span style={{width:8,height:8,borderRadius:"50%",
+              background:streaming?C.purple:C.teal,
+              boxShadow:`0 0 10px ${streaming?C.purple:C.teal}`,display:"inline-block",
               animation:streaming?"blink 1s step-end infinite":"none"}}/>
-            AI ANALYSIS OUTPUT
+            {streaming?"AI ANALYSIS — STREAMING...":"AI ANALYSIS — "+( lastResult?.ts||"")}
           </PTitle>
+          {lastResult&&!streaming&&(
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:8}}>
+              Query: <span style={{color:C.teal}}>{lastResult.q.slice(0,120)}{lastResult.q.length>120?"...":""}</span>
+            </div>
+          )}
           <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
             lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
-            padding:14,minHeight:80}}>
-            {output||lastResult?.a||""}
+            padding:14,minHeight:80,maxHeight:500,overflowY:"auto"}}>
+            {output||(lastResult?.a||"")}
             {streaming&&<span style={{animation:"blink 1s step-end infinite",color:C.purple}}>▋</span>}
           </div>
         </Panel>
       )}
 
-      {!streaming&&!output&&lastResult&&(
-        <Panel color={C.teal}>
-          <PTitle>⬡ LAST ANALYSIS — {lastResult.ts}</PTitle>
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:8}}>
-            Query: <span style={{color:C.teal}}>{lastResult.q.slice(0,100)}{lastResult.q.length>100?"...":""}</span>
-          </div>
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
-            lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
-            padding:14,maxHeight:400,overflowY:"auto"}}>
-            {lastResult.a}
-          </div>
-        </Panel>
-      )}
-
-      {!streaming&&!output&&!lastResult&&(
+      {!streaming&&!lastResult&&(
         <Panel style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}>
           <div style={{textAlign:"center",color:C.textLabel,fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
             <div style={{fontSize:32,marginBottom:10,opacity:.25}}>🤖</div>
