@@ -928,140 +928,6 @@ function AIAnalysisTab({totalThreats,totalBenign,anomScores,blockedIPs,labelCoun
 }
 
 
-return(
-  <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Rajdhani',sans-serif",
-    fontSize:13,color:C.text,overflow:"hidden",position:"relative",...isSimBorder}}>
-    <style>{CSS}</style>
-
-    {lockdown&&<div style={{position:"fixed",inset:0,zIndex:9000,pointerEvents:"none",display:"flex",alignItems:"stretch"}}>
-      <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
-      <div style={{flex:1,background:"rgba(255,45,85,0.06)"}}/>
-      <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
-      <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
-      <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
-      <div style={{position:"absolute",top:"42%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"all"}}>
-        <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:26,fontWeight:900,color:C.red,
-          textShadow:`0 0 30px ${C.red}`,letterSpacing:5,animation:"lockFlash .3s ease-in-out infinite",marginBottom:16}}>
-          ⚠ FORCE LOCKDOWN ACTIVE
-        </div>
-        <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:"#ff6688",letterSpacing:2,marginBottom:16}}>
-          ALL CONNECTIONS SEVERED — PERIMETER ISOLATED
-        </div>
-        <button onClick={()=>setLockdown(false)}
-          style={{padding:"8px 24px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,letterSpacing:2,
-            border:`1px solid ${C.red}`,background:"rgba(255,45,85,.2)",color:"#ff8899",
-            cursor:"pointer",textTransform:"uppercase"}}>
-          CANCEL LOCKDOWN
-        </button>
-      </div>
-    </div>}
-
-    {showSimModal&&<SimModal onStart={startSim} onClose={()=>setShowSimModal(false)}/>}
-
-    {/* TOPBAR */}
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 18px",
-      height:50,background:"#040710",borderBottom:`1px solid ${C.border}`,
-      position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
-      <div style={{display:"flex",alignItems:"center",gap:9,fontFamily:"'Orbitron',sans-serif",
-        fontSize:17,fontWeight:900,color:C.cyan,letterSpacing:3,flexShrink:0}}>
-        <div style={{width:28,height:28,background:C.cyan,
-          clipPath:"polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
-          boxShadow:`0 0 18px ${C.cyan}`,animation:"hexPulse 3s ease-in-out infinite"}}/>
-        CIPHERNEST
-      </div>
-      <div style={{display:"flex",gap:3,marginLeft:16}}>
-        {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
-          <button key={t} onClick={()=>setTab(t)}
-            style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
-              letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
-              border:`1px solid ${tab===t?C.cyan:"transparent"}`,
-              background:tab===t?`${C.cyan}18`:"transparent",
-              cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
-            {l}
-          </button>
-        ))}
-      </div>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto",flexWrap:"wrap"}}>
-        <div style={{display:"flex",alignItems:"center",gap:6,fontFamily:"'Share Tech Mono',monospace",
-          fontSize:9,color:isSimMode?C.purple:C.cyan}}>
-          {isSimMode?"SIMULATION":"LIVE"}
-          <div onClick={handleModeToggle}
-            style={{width:36,height:18,borderRadius:9,position:"relative",cursor:"pointer",
-              background:isSimMode?C.purple:C.cyan,
-              boxShadow:`0 0 10px ${isSimMode?C.purple:C.cyan}`,transition:"background .3s"}}>
-            <span style={{position:"absolute",top:3,width:12,height:12,borderRadius:"50%",
-              background:"#fff",transition:"right .3s",right:isSimMode?3:19}}/>
-          </div>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
-          border:`1px solid ${C.green}`,fontFamily:"'Share Tech Mono',monospace",
-          fontSize:9,letterSpacing:"1.5px",color:C.green}}>
-          <Dot color={C.green}/> ALL SYSTEMS NOMINAL
-        </div>
-        <LiveClock/>
-        <div style={{padding:"4px 12px",background:`${C.red}11`,border:`1px solid ${C.red}`,
-          fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",color:C.red,
-          animation:"pulseRed 2s ease-in-out infinite"}}>
-          ⚠ {totalThreats>50?"CRITICAL":totalThreats>10?"HIGH":"MEDIUM"}
-        </div>
-      </div>
-    </div>
-
-    {/* TICKER */}
-    <div style={{background:"#030608",borderBottom:`1px solid ${C.border}`,
-      padding:"5px 18px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
-      color:C.textDim,display:"flex",alignItems:"center",gap:6,overflow:"hidden",whiteSpace:"nowrap"}}>
-      <Dot color={isSimMode?C.purple:C.cyan}/>
-      <span style={{animation:"ticker 45s linear infinite",display:"inline-block"}}>
-        {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
-        <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
-        {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
-        {" "}· CLASSIFIER: <span style={{color:C.green}}>{agentStatus.clf}</span>
-        {" "}· ANALYZER: <span style={{color:C.purple}}>{agentStatus.ana}</span>
-        {" "}· LOG_ANALYZER: <span style={{color:C.teal}}>{agentStatus.log}</span>
-        {" "}· THREAT_DETECT: <span style={{color:C.red}}>{agentStatus.det}</span>
-        {" "}· ORCHESTRATOR: <span style={{color:C.gold}}>{agentStatus.orch}</span>
-        {" "}· Blocked IPs: <span style={{color:C.red}}>{blockedIPs.length}</span>
-        &nbsp;&nbsp;&nbsp;
-        {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
-        <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
-        {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
-      </span>
-    </div>
-
-    {/* AGENT STATUS BAR */}
-    <div style={{display:"flex",alignItems:"center",gap:12,padding:"7px 18px",
-      background:"#050a10",borderBottom:`1px solid ${C.border}`,
-      fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,flexWrap:"wrap"}}>
-      <span style={{fontSize:9,color:C.textLabel,letterSpacing:2}}>AGENTS:</span>
-      {AGENTS.map(a=>{
-        const s=agentStatus[a.id];
-        const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
-        return<div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
-          border:`1px solid ${C.borderBright}`,background:C.card}}>
-          <span style={{fontSize:9,color:a.color}}>{a.label}</span>
-          <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
-          <span style={{fontSize:9,color:sc}}>{s}</span>
-        </div>;
-      })}
-      <span style={{marginLeft:"auto",fontSize:9,color:C.textLabel}}>
-        {totalFlows.toLocaleString()} flows · {blockedIPs.length} blocked
-      </span>
-    </div>
-
-    {/* TAB CONTENT */}
-    <div style={{overflowY:"auto",maxHeight:"calc(100vh - 138px)"}}>
-      {tab==="dashboard"&&<DashboardTab/>}
-      {tab==="simulation"&&<SimulationTab/>}
-      {tab==="reports"&&<ReportsTab/>}
-      {tab==="agents"&&<AgentsManagerTab/>}
-      {tab==="ml"&&<MLModelsTab/>}
-      {tab==="aianalysis"&&<AIAnalysisTab totalThreats={totalThreats} totalBenign={totalBenign} anomScores={anomScores} blockedIPs={blockedIPs} labelCounts={labelCounts} agentStatus={agentStatus} alerts={alerts}/>}
-    </div>
-  </div>
-);
-
-
 export default function CipherNest(){
   const[tab,setTab]=useState("dashboard");
   const[mode,setMode]=useState("live");
@@ -1889,6 +1755,140 @@ export default function CipherNest(){
       </div>
     </Panel>;
   }
+
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Rajdhani',sans-serif",
+      fontSize:13,color:C.text,overflow:"hidden",position:"relative",...isSimBorder}}>
+      <style>{CSS}</style>
+  
+      {lockdown&&<div style={{position:"fixed",inset:0,zIndex:9000,pointerEvents:"none",display:"flex",alignItems:"stretch"}}>
+        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
+        <div style={{flex:1,background:"rgba(255,45,85,0.06)"}}/>
+        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
+        <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
+        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
+        <div style={{position:"absolute",top:"42%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"all"}}>
+          <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:26,fontWeight:900,color:C.red,
+            textShadow:`0 0 30px ${C.red}`,letterSpacing:5,animation:"lockFlash .3s ease-in-out infinite",marginBottom:16}}>
+            ⚠ FORCE LOCKDOWN ACTIVE
+          </div>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:"#ff6688",letterSpacing:2,marginBottom:16}}>
+            ALL CONNECTIONS SEVERED — PERIMETER ISOLATED
+          </div>
+          <button onClick={()=>setLockdown(false)}
+            style={{padding:"8px 24px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,letterSpacing:2,
+              border:`1px solid ${C.red}`,background:"rgba(255,45,85,.2)",color:"#ff8899",
+              cursor:"pointer",textTransform:"uppercase"}}>
+            CANCEL LOCKDOWN
+          </button>
+        </div>
+      </div>}
+  
+      {showSimModal&&<SimModal onStart={startSim} onClose={()=>setShowSimModal(false)}/>}
+  
+      {/* TOPBAR */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 18px",
+        height:50,background:"#040710",borderBottom:`1px solid ${C.border}`,
+        position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:9,fontFamily:"'Orbitron',sans-serif",
+          fontSize:17,fontWeight:900,color:C.cyan,letterSpacing:3,flexShrink:0}}>
+          <div style={{width:28,height:28,background:C.cyan,
+            clipPath:"polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
+            boxShadow:`0 0 18px ${C.cyan}`,animation:"hexPulse 3s ease-in-out infinite"}}/>
+          CIPHERNEST
+        </div>
+        <div style={{display:"flex",gap:3,marginLeft:16}}>
+          {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
+                letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
+                border:`1px solid ${tab===t?C.cyan:"transparent"}`,
+                background:tab===t?`${C.cyan}18`:"transparent",
+                cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontFamily:"'Share Tech Mono',monospace",
+            fontSize:9,color:isSimMode?C.purple:C.cyan}}>
+            {isSimMode?"SIMULATION":"LIVE"}
+            <div onClick={handleModeToggle}
+              style={{width:36,height:18,borderRadius:9,position:"relative",cursor:"pointer",
+                background:isSimMode?C.purple:C.cyan,
+                boxShadow:`0 0 10px ${isSimMode?C.purple:C.cyan}`,transition:"background .3s"}}>
+              <span style={{position:"absolute",top:3,width:12,height:12,borderRadius:"50%",
+                background:"#fff",transition:"right .3s",right:isSimMode?3:19}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
+            border:`1px solid ${C.green}`,fontFamily:"'Share Tech Mono',monospace",
+            fontSize:9,letterSpacing:"1.5px",color:C.green}}>
+            <Dot color={C.green}/> ALL SYSTEMS NOMINAL
+          </div>
+          <LiveClock/>
+          <div style={{padding:"4px 12px",background:`${C.red}11`,border:`1px solid ${C.red}`,
+            fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",color:C.red,
+            animation:"pulseRed 2s ease-in-out infinite"}}>
+            ⚠ {totalThreats>50?"CRITICAL":totalThreats>10?"HIGH":"MEDIUM"}
+          </div>
+        </div>
+      </div>
+  
+      {/* TICKER */}
+      <div style={{background:"#030608",borderBottom:`1px solid ${C.border}`,
+        padding:"5px 18px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
+        color:C.textDim,display:"flex",alignItems:"center",gap:6,overflow:"hidden",whiteSpace:"nowrap"}}>
+        <Dot color={isSimMode?C.purple:C.cyan}/>
+        <span style={{animation:"ticker 45s linear infinite",display:"inline-block"}}>
+          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
+          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
+          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
+          {" "}· CLASSIFIER: <span style={{color:C.green}}>{agentStatus.clf}</span>
+          {" "}· ANALYZER: <span style={{color:C.purple}}>{agentStatus.ana}</span>
+          {" "}· LOG_ANALYZER: <span style={{color:C.teal}}>{agentStatus.log}</span>
+          {" "}· THREAT_DETECT: <span style={{color:C.red}}>{agentStatus.det}</span>
+          {" "}· ORCHESTRATOR: <span style={{color:C.gold}}>{agentStatus.orch}</span>
+          {" "}· Blocked IPs: <span style={{color:C.red}}>{blockedIPs.length}</span>
+          &nbsp;&nbsp;&nbsp;
+          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
+          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
+          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
+        </span>
+      </div>
+  
+      {/* AGENT STATUS BAR */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"7px 18px",
+        background:"#050a10",borderBottom:`1px solid ${C.border}`,
+        fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,flexWrap:"wrap"}}>
+        <span style={{fontSize:9,color:C.textLabel,letterSpacing:2}}>AGENTS:</span>
+        {AGENTS.map(a=>{
+          const s=agentStatus[a.id];
+          const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
+          return<div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
+            border:`1px solid ${C.borderBright}`,background:C.card}}>
+            <span style={{fontSize:9,color:a.color}}>{a.label}</span>
+            <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
+            <span style={{fontSize:9,color:sc}}>{s}</span>
+          </div>;
+        })}
+        <span style={{marginLeft:"auto",fontSize:9,color:C.textLabel}}>
+          {totalFlows.toLocaleString()} flows · {blockedIPs.length} blocked
+        </span>
+      </div>
+  
+      {/* TAB CONTENT */}
+      <div style={{overflowY:"auto",maxHeight:"calc(100vh - 138px)"}}>
+        {tab==="dashboard"&&<DashboardTab/>}
+        {tab==="simulation"&&<SimulationTab/>}
+        {tab==="reports"&&<ReportsTab/>}
+        {tab==="agents"&&<AgentsManagerTab/>}
+        {tab==="ml"&&<MLModelsTab/>}
+        {tab==="aianalysis"&&<AIAnalysisTab totalThreats={totalThreats} totalBenign={totalBenign} anomScores={anomScores} blockedIPs={blockedIPs} labelCounts={labelCounts} agentStatus={agentStatus} alerts={alerts}/>}
+      </div>
+    </div>
+  );
 
   /* ─── ML MODELS TAB ─── */
 }
