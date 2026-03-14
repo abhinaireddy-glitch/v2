@@ -1093,337 +1093,6 @@ export default function CipherNest(){
     </div>;
   }
 
-  return(
-    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Rajdhani',sans-serif",
-      fontSize:13,color:C.text,overflow:"hidden",position:"relative",...isSimBorder}}>
-      <style>{CSS}</style>
-
-      {lockdown&&<div style={{position:"fixed",inset:0,zIndex:9000,pointerEvents:"none",display:"flex",alignItems:"stretch"}}>
-        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
-        <div style={{flex:1,background:"rgba(255,45,85,0.06)"}}/>
-        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
-        <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
-        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
-        <div style={{position:"absolute",top:"42%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"all"}}>
-          <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:26,fontWeight:900,color:C.red,
-            textShadow:`0 0 30px ${C.red}`,letterSpacing:5,animation:"lockFlash .3s ease-in-out infinite",marginBottom:16}}>
-            ⚠ FORCE LOCKDOWN ACTIVE
-          </div>
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:"#ff6688",letterSpacing:2,marginBottom:16}}>
-            ALL CONNECTIONS SEVERED — PERIMETER ISOLATED
-          </div>
-          <button onClick={()=>setLockdown(false)}
-            style={{padding:"8px 24px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,letterSpacing:2,
-              border:`1px solid ${C.red}`,background:"rgba(255,45,85,.2)",color:"#ff8899",
-              cursor:"pointer",textTransform:"uppercase"}}>
-            CANCEL LOCKDOWN
-          </button>
-        </div>
-      </div>}
-
-      {showSimModal&&<SimModal onStart={startSim} onClose={()=>setShowSimModal(false)}/>}
-
-      {/* TOPBAR */}
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 18px",
-        height:50,background:"#040710",borderBottom:`1px solid ${C.border}`,
-        position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
-        <div style={{display:"flex",alignItems:"center",gap:9,fontFamily:"'Orbitron',sans-serif",
-          fontSize:17,fontWeight:900,color:C.cyan,letterSpacing:3,flexShrink:0}}>
-          <div style={{width:28,height:28,background:C.cyan,
-            clipPath:"polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
-            boxShadow:`0 0 18px ${C.cyan}`,animation:"hexPulse 3s ease-in-out infinite"}}/>
-          CIPHERNEST
-        </div>
-        <div style={{display:"flex",gap:3,marginLeft:16}}>
-          {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTab(t)}
-              style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
-                letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
-                border:`1px solid ${tab===t?C.cyan:"transparent"}`,
-                background:tab===t?`${C.cyan}18`:"transparent",
-                cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto",flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,fontFamily:"'Share Tech Mono',monospace",
-            fontSize:9,color:isSimMode?C.purple:C.cyan}}>
-            {isSimMode?"SIMULATION":"LIVE"}
-            <div onClick={handleModeToggle}
-              style={{width:36,height:18,borderRadius:9,position:"relative",cursor:"pointer",
-                background:isSimMode?C.purple:C.cyan,
-                boxShadow:`0 0 10px ${isSimMode?C.purple:C.cyan}`,transition:"background .3s"}}>
-              <span style={{position:"absolute",top:3,width:12,height:12,borderRadius:"50%",
-                background:"#fff",transition:"right .3s",right:isSimMode?3:19}}/>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
-            border:`1px solid ${C.green}`,fontFamily:"'Share Tech Mono',monospace",
-            fontSize:9,letterSpacing:"1.5px",color:C.green}}>
-            <Dot color={C.green}/> ALL SYSTEMS NOMINAL
-          </div>
-          <LiveClock/>
-          <div style={{padding:"4px 12px",background:`${C.red}11`,border:`1px solid ${C.red}`,
-            fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",color:C.red,
-            animation:"pulseRed 2s ease-in-out infinite"}}>
-            ⚠ {totalThreats>50?"CRITICAL":totalThreats>10?"HIGH":"MEDIUM"}
-          </div>
-        </div>
-      </div>
-
-      {/* TICKER */}
-      <div style={{background:"#030608",borderBottom:`1px solid ${C.border}`,
-        padding:"5px 18px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
-        color:C.textDim,display:"flex",alignItems:"center",gap:6,overflow:"hidden",whiteSpace:"nowrap"}}>
-        <Dot color={isSimMode?C.purple:C.cyan}/>
-        <span style={{animation:"ticker 45s linear infinite",display:"inline-block"}}>
-          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
-          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
-          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
-          {" "}· CLASSIFIER: <span style={{color:C.green}}>{agentStatus.clf}</span>
-          {" "}· ANALYZER: <span style={{color:C.purple}}>{agentStatus.ana}</span>
-          {" "}· LOG_ANALYZER: <span style={{color:C.teal}}>{agentStatus.log}</span>
-          {" "}· THREAT_DETECT: <span style={{color:C.red}}>{agentStatus.det}</span>
-          {" "}· ORCHESTRATOR: <span style={{color:C.gold}}>{agentStatus.orch}</span>
-          {" "}· Blocked IPs: <span style={{color:C.red}}>{blockedIPs.length}</span>
-          &nbsp;&nbsp;&nbsp;
-          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
-          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
-          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
-        </span>
-      </div>
-
-      {/* AGENT STATUS BAR */}
-      <div style={{display:"flex",alignItems:"center",gap:12,padding:"7px 18px",
-        background:"#050a10",borderBottom:`1px solid ${C.border}`,
-        fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,flexWrap:"wrap"}}>
-        <span style={{fontSize:9,color:C.textLabel,letterSpacing:2}}>AGENTS:</span>
-        {AGENTS.map(a=>{
-          const s=agentStatus[a.id];
-          const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
-          return<div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
-            border:`1px solid ${C.borderBright}`,background:C.card}}>
-            <span style={{fontSize:9,color:a.color}}>{a.label}</span>
-            <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
-            <span style={{fontSize:9,color:sc}}>{s}</span>
-          </div>;
-        })}
-        <span style={{marginLeft:"auto",fontSize:9,color:C.textLabel}}>
-          {totalFlows.toLocaleString()} flows · {blockedIPs.length} blocked
-        </span>
-      </div>
-
-      {/* TAB CONTENT */}
-      <div style={{overflowY:"auto",maxHeight:"calc(100vh - 138px)"}}>
-        {tab==="dashboard"&&<DashboardTab/>}
-        {tab==="simulation"&&<SimulationTab/>}
-        {tab==="reports"&&<ReportsTab/>}
-        {tab==="agents"&&<AgentsManagerTab/>}
-        {tab==="ml"&&<MLModelsTab/>}
-        {tab==="aianalysis"&&<AIAnalysisTab/>}
-      </div>
-    </div>
-  );
-
-  function MetricCards(){
-    return<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"12px 18px"}}>
-      {[
-        {l:"TOTAL FLOWS",v:totalFlows.toLocaleString(),c:C.cyan},
-        {l:"THREATS",v:totalThreats.toLocaleString(),c:C.red},
-        {l:"BENIGN",v:totalBenign.toLocaleString(),c:C.green},
-        {l:"AVG SCORE",v:avgScore.toFixed(3),c:avgScore>.6?C.red:avgScore>.3?C.orange:C.green},
-      ].map(m=>(
-        <div key={m.l} style={{background:C.panel,
-          border:`1px solid ${isSimMode?C.purple:C.border}`,padding:"12px 16px",
-          position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:0,left:0,right:0,height:2,
-            background:m.c,boxShadow:`0 0 10px ${m.c}`}}/>
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.textLabel,marginBottom:6}}>{m.l}</div>
-          <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:22,fontWeight:700,
-            color:m.c,textShadow:`0 0 12px ${m.c}88`}}>{m.v}</div>
-        </div>
-      ))}
-    </div>;
-  }
-
-  function ThreatEnginePanel(){
-    const confPct=C2?Math.round(C2.score*100):0;
-    return<Panel color={isSimMode?C.purple:C.cyan}>
-      <PTitle>AI Threat Engine</PTitle>
-      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
-        {[["all","All Traffic"],["ddos","DDoS"],["portscan","Port Scan"],["brute","Brute Force"],["bot","Bot"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setFilterType(v)}
-            style={{padding:"4px 11px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,
-              letterSpacing:"1.5px",textTransform:"uppercase",cursor:"pointer",
-              background:filterType===v?C.cyan:"transparent",
-              color:filterType===v?C.bg:C.textDim,
-              border:`1px solid ${filterType===v?C.cyan:C.borderBright}`,transition:"all .2s"}}>
-            {l}
-          </button>
-        ))}
-      </div>
-      <div style={{border:`1px solid ${C.red}`,background:`${C.red}08`,padding:"12px 14px",marginBottom:10,position:"relative"}}>
-        <span style={{position:"absolute",top:-7,left:10,background:C.panel,padding:"0 7px",
-          fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.red}}>⚠ THREAT DETECTED</span>
-        <p style={{fontFamily:"'Share Tech Mono',monospace",fontSize:12,lineHeight:1.9,color:C.text}}>
-          Attack Type: <span style={{color:C.red,fontWeight:700}}>{C2?.label||"—"}</span><br/>
-          Confidence: <span style={{color:C.red,fontWeight:700}}>{C2?confPct+"%":"—"}</span><br/>
-          Src IP: <span style={{color:C.orange}}>{C2?.srcIp||"—"}</span>
-        </p>
-        <BarFill pct={confPct} color={C.red}/>
-      </div>
-      <div style={{border:`1px solid ${C.cyan}`,background:`${C.cyan}05`,padding:"12px 14px",marginBottom:10,position:"relative"}}>
-        <span style={{position:"absolute",top:-7,left:10,background:C.panel,padding:"0 7px",
-          fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.cyan}}>CICIDS FEATURE ANALYSIS</span>
-        <p style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,lineHeight:1.9,color:C.text}}>
-          {C2?<>
-            Bytes/s: <span style={{color:C.orange}}>{C2.bps.toExponential(2)}</span>,{" "}
-            Pkts/s: <span style={{color:C.cyan}}>{C2.pps.toFixed(0)}</span>,{" "}
-            SYN: <span style={{color:C.green}}>{C2.syn}</span>, RST: <span style={{color:C.green}}>{C2.rst}</span>.<br/>
-            IAT Std: <span style={{color:C.cyan}}>{C2.iat.toFixed(2)}s</span>. Label: <span style={{color:C.red}}>{C2.label}</span>.<br/>
-            {C2.isThreat?"Anomaly pattern matches known threat signature.":"Normal baseline flow."}
-          </>:"Awaiting flow data..."}
-        </p>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        {[{l:"THREAT PORT",v:C2?.port||"—",c:C.cyan},{l:"FLOW DURATION",v:C2?C2.dur.toFixed(1)+"s":"—",c:C.cyan},
-          {l:"FLOW BYTES/S",v:C2?fmtBps(C2.bps):"—",c:C.cyan},{l:"ANOMALY SCORE",v:C2?C2.score.toFixed(3):"—",c:C.red}
-        ].map(s=>(
-          <div key={s.l} style={{background:C.card,border:`1px solid ${C.border}`,padding:"10px 12px"}}>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.textLabel,marginBottom:5}}>{s.l}</div>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:18,color:s.c,textShadow:`0 0 10px ${s.c}88`}}>{s.v}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2.5,color:C.textLabel,marginBottom:8}}>INCIDENT RESPONSE</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-        <Btn onClick={()=>incidentAction("investigate")}>■ Request Investigation</Btn>
-        <Btn color={C.red} onClick={()=>incidentAction("lockdown")}>⊗ Force Lockdown</Btn>
-        <Btn onClick={()=>incidentAction("report")}>◆ Generate Report</Btn>
-        <Btn color={C.orange} onClick={()=>incidentAction("escalate")}>▲ Escalate to SOC</Btn>
-      </div>
-    </Panel>;
-  }
-
-  function AgentLogPanel(){
-    return<Panel color={C.cyan}>
-      <PTitle>
-        <span style={{width:8,height:8,borderRadius:"50%",background:C.cyan,
-          boxShadow:`0 0 10px ${C.cyan}`,display:"inline-block"}}/>
-        Agents Log
-      </PTitle>
-      <div style={{maxHeight:270,overflowY:"auto"}}>
-        {(incidentOutput||incidentStreaming)&&(
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
-            background:C.card,border:`1px solid ${incidentStreaming?C.cyan:C.border}`,
-            padding:10,marginBottom:8,lineHeight:1.8,whiteSpace:"pre-wrap"}}>
-            {incidentOutput}
-            {incidentStreaming&&<span style={{animation:"blink 1s step-end infinite"}}>▋</span>}
-          </div>
-        )}
-        {!agentLog.length&&!incidentOutput&&(
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel,padding:"10px 0"}}>
-            Agents will post analysis here as threats are detected.
-          </div>
-        )}
-        {agentLog.map(e=>(
-          <div key={e.id} className="anim-slide" style={{padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel}}>{e.ts}</span>
-              <span style={{padding:"1px 6px",fontSize:8,letterSpacing:1,
-                background:`${e.color||C.purple}22`,color:e.color||C.purple,
-                border:`1px solid ${e.color||C.purple}`}}>{e.agent}</span>
-            </div>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.7,whiteSpace:"pre-wrap"}}>
-              {e.text}
-              {e.streaming&&<span style={{animation:"blink 1s step-end infinite"}}>▋</span>}
-            </div>
-          </div>
-        ))}
-      </div>
-    </Panel>;
-  }
-
-  function RightCol(){
-    return<>
-      <Panel>
-        <PTitle>Label Distribution</PTitle>
-        <div style={{display:"flex",justifyContent:"center"}}>
-          <DonutChart data={donutData.length?donutData:[{label:"Empty",value:1,color:C.border}]}/>
-        </div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:"6px 12px",marginTop:10,justifyContent:"center"}}>
-          {donutData.map(d=>(
-            <div key={d.label} style={{display:"flex",alignItems:"center",gap:5,
-              fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>
-              <span style={{width:10,height:10,borderRadius:2,background:d.color,display:"inline-block"}}/>
-              {d.label}
-            </div>
-          ))}
-        </div>
-      </Panel>
-      <Panel>
-        <PTitle>Top Attack Ports</PTitle>
-        {!topPorts.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>Awaiting flows...</div>}
-        {topPorts.map(([port,count])=>(
-          <div key={port} style={{display:"grid",gridTemplateColumns:"48px 1fr 44px 60px",alignItems:"center",gap:6,marginBottom:8}}>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.textDim}}>{port}</span>
-            <div style={{height:5,background:"#0f2030",overflow:"hidden"}}>
-              <div style={{height:"100%",width:`${Math.round(count/maxPortCount*100)}%`,
-                background:`linear-gradient(90deg,${C.red},#ff6688)`,boxShadow:`0 0 5px ${C.red}`,transition:"width 1s"}}/>
-            </div>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.orange,textAlign:"right"}}>
-              {Math.round(count/(totalFlows||1)*100)}%
-            </span>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel,textAlign:"right"}}>
-              {count} flows
-            </span>
-          </div>
-        ))}
-      </Panel>
-      <Panel>
-        <PTitle>Anomaly Feature Importance</PTitle>
-        {!importanceBars.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>Awaiting flow data...</div>}
-        {importanceBars.map(b=>(
-          <div key={b.l} style={{display:"grid",gridTemplateColumns:"130px 1fr 44px",alignItems:"center",gap:8,marginBottom:8}}>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim}}>{b.l}</span>
-            <div style={{height:5,background:"#0f2030",overflow:"hidden"}}>
-              <div style={{height:"100%",width:`${Math.max(2,b.pct)}%`,background:b.c,
-                boxShadow:`0 0 5px ${b.c}`,transition:"width 1s"}}/>
-            </div>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:b.c,textAlign:"right"}}>{Math.round(b.pct)}%</span>
-          </div>
-        ))}
-      </Panel>
-    </>;
-  }
-
-  function AlertFeed(){
-    return<Panel>
-      <PTitle>Live Alerts Feed</PTitle>
-      <div style={{maxHeight:180,overflowY:"auto"}}>
-        {!alerts.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>Awaiting threats...</div>}
-        {alerts.map((a)=>{
-          const col=a.label.toLowerCase().includes("bot")?C.purple
-            :a.label.toLowerCase().includes("ddos")||a.label.toLowerCase().includes("dos")?C.red
-            :a.label.toLowerCase().includes("port")?C.orange
-            :a.label.toLowerCase().includes("brute")||a.label.toLowerCase().includes("patator")?C.cyan
-            :C.textDim;
-          return<div key={a.ts+a.srcIp} className="anim-slide" style={{display:"flex",alignItems:"flex-start",gap:8,
-            padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,flexShrink:0}}>{a.ts}</span>
-            <span style={{padding:"1px 5px",fontSize:8,letterSpacing:1,
-              background:`${col}22`,color:col,border:`1px solid ${col}`,flexShrink:0}}>
-              {a.label.split(" ")[0].toUpperCase()}
-            </span>
-            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.5}}>
-              :{a.port} · {a.score.toFixed(3)} · {a.srcIp}
-            </span>
-          </div>;
-        })}
-      </div>
-    </Panel>;
-  }
 
   function DashboardTab(){
     return<>
@@ -1882,6 +1551,339 @@ export default function CipherNest(){
         )}
       </div>
     </div>;
+  }
+
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Rajdhani',sans-serif",
+      fontSize:13,color:C.text,overflow:"hidden",position:"relative",...isSimBorder}}>
+      <style>{CSS}</style>
+
+      {lockdown&&<div style={{position:"fixed",inset:0,zIndex:9000,pointerEvents:"none",display:"flex",alignItems:"stretch"}}>
+        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
+        <div style={{flex:1,background:"rgba(255,45,85,0.06)"}}/>
+        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
+        <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
+        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
+        <div style={{position:"absolute",top:"42%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"all"}}>
+          <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:26,fontWeight:900,color:C.red,
+            textShadow:`0 0 30px ${C.red}`,letterSpacing:5,animation:"lockFlash .3s ease-in-out infinite",marginBottom:16}}>
+            ⚠ FORCE LOCKDOWN ACTIVE
+          </div>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:"#ff6688",letterSpacing:2,marginBottom:16}}>
+            ALL CONNECTIONS SEVERED — PERIMETER ISOLATED
+          </div>
+          <button onClick={()=>setLockdown(false)}
+            style={{padding:"8px 24px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,letterSpacing:2,
+              border:`1px solid ${C.red}`,background:"rgba(255,45,85,.2)",color:"#ff8899",
+              cursor:"pointer",textTransform:"uppercase"}}>
+            CANCEL LOCKDOWN
+          </button>
+        </div>
+      </div>}
+
+      {showSimModal&&<SimModal onStart={startSim} onClose={()=>setShowSimModal(false)}/>}
+
+      {/* TOPBAR */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 18px",
+        height:50,background:"#040710",borderBottom:`1px solid ${C.border}`,
+        position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:9,fontFamily:"'Orbitron',sans-serif",
+          fontSize:17,fontWeight:900,color:C.cyan,letterSpacing:3,flexShrink:0}}>
+          <div style={{width:28,height:28,background:C.cyan,
+            clipPath:"polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
+            boxShadow:`0 0 18px ${C.cyan}`,animation:"hexPulse 3s ease-in-out infinite"}}/>
+          CIPHERNEST
+        </div>
+        <div style={{display:"flex",gap:3,marginLeft:16}}>
+          {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
+                letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
+                border:`1px solid ${tab===t?C.cyan:"transparent"}`,
+                background:tab===t?`${C.cyan}18`:"transparent",
+                cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontFamily:"'Share Tech Mono',monospace",
+            fontSize:9,color:isSimMode?C.purple:C.cyan}}>
+            {isSimMode?"SIMULATION":"LIVE"}
+            <div onClick={handleModeToggle}
+              style={{width:36,height:18,borderRadius:9,position:"relative",cursor:"pointer",
+                background:isSimMode?C.purple:C.cyan,
+                boxShadow:`0 0 10px ${isSimMode?C.purple:C.cyan}`,transition:"background .3s"}}>
+              <span style={{position:"absolute",top:3,width:12,height:12,borderRadius:"50%",
+                background:"#fff",transition:"right .3s",right:isSimMode?3:19}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
+            border:`1px solid ${C.green}`,fontFamily:"'Share Tech Mono',monospace",
+            fontSize:9,letterSpacing:"1.5px",color:C.green}}>
+            <Dot color={C.green}/> ALL SYSTEMS NOMINAL
+          </div>
+          <LiveClock/>
+          <div style={{padding:"4px 12px",background:`${C.red}11`,border:`1px solid ${C.red}`,
+            fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",color:C.red,
+            animation:"pulseRed 2s ease-in-out infinite"}}>
+            ⚠ {totalThreats>50?"CRITICAL":totalThreats>10?"HIGH":"MEDIUM"}
+          </div>
+        </div>
+      </div>
+
+      {/* TICKER */}
+      <div style={{background:"#030608",borderBottom:`1px solid ${C.border}`,
+        padding:"5px 18px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
+        color:C.textDim,display:"flex",alignItems:"center",gap:6,overflow:"hidden",whiteSpace:"nowrap"}}>
+        <Dot color={isSimMode?C.purple:C.cyan}/>
+        <span style={{animation:"ticker 45s linear infinite",display:"inline-block"}}>
+          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
+          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
+          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
+          {" "}· CLASSIFIER: <span style={{color:C.green}}>{agentStatus.clf}</span>
+          {" "}· ANALYZER: <span style={{color:C.purple}}>{agentStatus.ana}</span>
+          {" "}· LOG_ANALYZER: <span style={{color:C.teal}}>{agentStatus.log}</span>
+          {" "}· THREAT_DETECT: <span style={{color:C.red}}>{agentStatus.det}</span>
+          {" "}· ORCHESTRATOR: <span style={{color:C.gold}}>{agentStatus.orch}</span>
+          {" "}· Blocked IPs: <span style={{color:C.red}}>{blockedIPs.length}</span>
+          &nbsp;&nbsp;&nbsp;
+          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
+          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
+          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
+        </span>
+      </div>
+
+      {/* AGENT STATUS BAR */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"7px 18px",
+        background:"#050a10",borderBottom:`1px solid ${C.border}`,
+        fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,flexWrap:"wrap"}}>
+        <span style={{fontSize:9,color:C.textLabel,letterSpacing:2}}>AGENTS:</span>
+        {AGENTS.map(a=>{
+          const s=agentStatus[a.id];
+          const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
+          return<div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
+            border:`1px solid ${C.borderBright}`,background:C.card}}>
+            <span style={{fontSize:9,color:a.color}}>{a.label}</span>
+            <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
+            <span style={{fontSize:9,color:sc}}>{s}</span>
+          </div>;
+        })}
+        <span style={{marginLeft:"auto",fontSize:9,color:C.textLabel}}>
+          {totalFlows.toLocaleString()} flows · {blockedIPs.length} blocked
+        </span>
+      </div>
+
+      {/* TAB CONTENT */}
+      <div style={{overflowY:"auto",maxHeight:"calc(100vh - 138px)"}}>
+        {tab==="dashboard"&&<DashboardTab/>}
+        {tab==="simulation"&&<SimulationTab/>}
+        {tab==="reports"&&<ReportsTab/>}
+        {tab==="agents"&&<AgentsManagerTab/>}
+        {tab==="ml"&&<MLModelsTab/>}
+        {tab==="aianalysis"&&<AIAnalysisTab/>}
+      </div>
+    </div>
+  );
+
+  function MetricCards(){
+    return<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"12px 18px"}}>
+      {[
+        {l:"TOTAL FLOWS",v:totalFlows.toLocaleString(),c:C.cyan},
+        {l:"THREATS",v:totalThreats.toLocaleString(),c:C.red},
+        {l:"BENIGN",v:totalBenign.toLocaleString(),c:C.green},
+        {l:"AVG SCORE",v:avgScore.toFixed(3),c:avgScore>.6?C.red:avgScore>.3?C.orange:C.green},
+      ].map(m=>(
+        <div key={m.l} style={{background:C.panel,
+          border:`1px solid ${isSimMode?C.purple:C.border}`,padding:"12px 16px",
+          position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:0,left:0,right:0,height:2,
+            background:m.c,boxShadow:`0 0 10px ${m.c}`}}/>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.textLabel,marginBottom:6}}>{m.l}</div>
+          <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:22,fontWeight:700,
+            color:m.c,textShadow:`0 0 12px ${m.c}88`}}>{m.v}</div>
+        </div>
+      ))}
+    </div>;
+  }
+
+  function ThreatEnginePanel(){
+    const confPct=C2?Math.round(C2.score*100):0;
+    return<Panel color={isSimMode?C.purple:C.cyan}>
+      <PTitle>AI Threat Engine</PTitle>
+      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+        {[["all","All Traffic"],["ddos","DDoS"],["portscan","Port Scan"],["brute","Brute Force"],["bot","Bot"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setFilterType(v)}
+            style={{padding:"4px 11px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,
+              letterSpacing:"1.5px",textTransform:"uppercase",cursor:"pointer",
+              background:filterType===v?C.cyan:"transparent",
+              color:filterType===v?C.bg:C.textDim,
+              border:`1px solid ${filterType===v?C.cyan:C.borderBright}`,transition:"all .2s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <div style={{border:`1px solid ${C.red}`,background:`${C.red}08`,padding:"12px 14px",marginBottom:10,position:"relative"}}>
+        <span style={{position:"absolute",top:-7,left:10,background:C.panel,padding:"0 7px",
+          fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.red}}>⚠ THREAT DETECTED</span>
+        <p style={{fontFamily:"'Share Tech Mono',monospace",fontSize:12,lineHeight:1.9,color:C.text}}>
+          Attack Type: <span style={{color:C.red,fontWeight:700}}>{C2?.label||"—"}</span><br/>
+          Confidence: <span style={{color:C.red,fontWeight:700}}>{C2?confPct+"%":"—"}</span><br/>
+          Src IP: <span style={{color:C.orange}}>{C2?.srcIp||"—"}</span>
+        </p>
+        <BarFill pct={confPct} color={C.red}/>
+      </div>
+      <div style={{border:`1px solid ${C.cyan}`,background:`${C.cyan}05`,padding:"12px 14px",marginBottom:10,position:"relative"}}>
+        <span style={{position:"absolute",top:-7,left:10,background:C.panel,padding:"0 7px",
+          fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.cyan}}>CICIDS FEATURE ANALYSIS</span>
+        <p style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,lineHeight:1.9,color:C.text}}>
+          {C2?<>
+            Bytes/s: <span style={{color:C.orange}}>{C2.bps.toExponential(2)}</span>,{" "}
+            Pkts/s: <span style={{color:C.cyan}}>{C2.pps.toFixed(0)}</span>,{" "}
+            SYN: <span style={{color:C.green}}>{C2.syn}</span>, RST: <span style={{color:C.green}}>{C2.rst}</span>.<br/>
+            IAT Std: <span style={{color:C.cyan}}>{C2.iat.toFixed(2)}s</span>. Label: <span style={{color:C.red}}>{C2.label}</span>.<br/>
+            {C2.isThreat?"Anomaly pattern matches known threat signature.":"Normal baseline flow."}
+          </>:"Awaiting flow data..."}
+        </p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        {[{l:"THREAT PORT",v:C2?.port||"—",c:C.cyan},{l:"FLOW DURATION",v:C2?C2.dur.toFixed(1)+"s":"—",c:C.cyan},
+          {l:"FLOW BYTES/S",v:C2?fmtBps(C2.bps):"—",c:C.cyan},{l:"ANOMALY SCORE",v:C2?C2.score.toFixed(3):"—",c:C.red}
+        ].map(s=>(
+          <div key={s.l} style={{background:C.card,border:`1px solid ${C.border}`,padding:"10px 12px"}}>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.textLabel,marginBottom:5}}>{s.l}</div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:18,color:s.c,textShadow:`0 0 10px ${s.c}88`}}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2.5,color:C.textLabel,marginBottom:8}}>INCIDENT RESPONSE</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+        <Btn onClick={()=>incidentAction("investigate")}>■ Request Investigation</Btn>
+        <Btn color={C.red} onClick={()=>incidentAction("lockdown")}>⊗ Force Lockdown</Btn>
+        <Btn onClick={()=>incidentAction("report")}>◆ Generate Report</Btn>
+        <Btn color={C.orange} onClick={()=>incidentAction("escalate")}>▲ Escalate to SOC</Btn>
+      </div>
+    </Panel>;
+  }
+
+  function AgentLogPanel(){
+    return<Panel color={C.cyan}>
+      <PTitle>
+        <span style={{width:8,height:8,borderRadius:"50%",background:C.cyan,
+          boxShadow:`0 0 10px ${C.cyan}`,display:"inline-block"}}/>
+        Agents Log
+      </PTitle>
+      <div style={{maxHeight:270,overflowY:"auto"}}>
+        {(incidentOutput||incidentStreaming)&&(
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
+            background:C.card,border:`1px solid ${incidentStreaming?C.cyan:C.border}`,
+            padding:10,marginBottom:8,lineHeight:1.8,whiteSpace:"pre-wrap"}}>
+            {incidentOutput}
+            {incidentStreaming&&<span style={{animation:"blink 1s step-end infinite"}}>▋</span>}
+          </div>
+        )}
+        {!agentLog.length&&!incidentOutput&&(
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel,padding:"10px 0"}}>
+            Agents will post analysis here as threats are detected.
+          </div>
+        )}
+        {agentLog.map(e=>(
+          <div key={e.id} className="anim-slide" style={{padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel}}>{e.ts}</span>
+              <span style={{padding:"1px 6px",fontSize:8,letterSpacing:1,
+                background:`${e.color||C.purple}22`,color:e.color||C.purple,
+                border:`1px solid ${e.color||C.purple}`}}>{e.agent}</span>
+            </div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.7,whiteSpace:"pre-wrap"}}>
+              {e.text}
+              {e.streaming&&<span style={{animation:"blink 1s step-end infinite"}}>▋</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>;
+  }
+
+  function RightCol(){
+    return<>
+      <Panel>
+        <PTitle>Label Distribution</PTitle>
+        <div style={{display:"flex",justifyContent:"center"}}>
+          <DonutChart data={donutData.length?donutData:[{label:"Empty",value:1,color:C.border}]}/>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:"6px 12px",marginTop:10,justifyContent:"center"}}>
+          {donutData.map(d=>(
+            <div key={d.label} style={{display:"flex",alignItems:"center",gap:5,
+              fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>
+              <span style={{width:10,height:10,borderRadius:2,background:d.color,display:"inline-block"}}/>
+              {d.label}
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel>
+        <PTitle>Top Attack Ports</PTitle>
+        {!topPorts.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>Awaiting flows...</div>}
+        {topPorts.map(([port,count])=>(
+          <div key={port} style={{display:"grid",gridTemplateColumns:"48px 1fr 44px 60px",alignItems:"center",gap:6,marginBottom:8}}>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.textDim}}>{port}</span>
+            <div style={{height:5,background:"#0f2030",overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${Math.round(count/maxPortCount*100)}%`,
+                background:`linear-gradient(90deg,${C.red},#ff6688)`,boxShadow:`0 0 5px ${C.red}`,transition:"width 1s"}}/>
+            </div>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.orange,textAlign:"right"}}>
+              {Math.round(count/(totalFlows||1)*100)}%
+            </span>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel,textAlign:"right"}}>
+              {count} flows
+            </span>
+          </div>
+        ))}
+      </Panel>
+      <Panel>
+        <PTitle>Anomaly Feature Importance</PTitle>
+        {!importanceBars.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>Awaiting flow data...</div>}
+        {importanceBars.map(b=>(
+          <div key={b.l} style={{display:"grid",gridTemplateColumns:"130px 1fr 44px",alignItems:"center",gap:8,marginBottom:8}}>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim}}>{b.l}</span>
+            <div style={{height:5,background:"#0f2030",overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${Math.max(2,b.pct)}%`,background:b.c,
+                boxShadow:`0 0 5px ${b.c}`,transition:"width 1s"}}/>
+            </div>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:b.c,textAlign:"right"}}>{Math.round(b.pct)}%</span>
+          </div>
+        ))}
+      </Panel>
+    </>;
+  }
+
+  function AlertFeed(){
+    return<Panel>
+      <PTitle>Live Alerts Feed</PTitle>
+      <div style={{maxHeight:180,overflowY:"auto"}}>
+        {!alerts.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>Awaiting threats...</div>}
+        {alerts.map((a)=>{
+          const col=a.label.toLowerCase().includes("bot")?C.purple
+            :a.label.toLowerCase().includes("ddos")||a.label.toLowerCase().includes("dos")?C.red
+            :a.label.toLowerCase().includes("port")?C.orange
+            :a.label.toLowerCase().includes("brute")||a.label.toLowerCase().includes("patator")?C.cyan
+            :C.textDim;
+          return<div key={a.ts+a.srcIp} className="anim-slide" style={{display:"flex",alignItems:"flex-start",gap:8,
+            padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,flexShrink:0}}>{a.ts}</span>
+            <span style={{padding:"1px 5px",fontSize:8,letterSpacing:1,
+              background:`${col}22`,color:col,border:`1px solid ${col}`,flexShrink:0}}>
+              {a.label.split(" ")[0].toUpperCase()}
+            </span>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.5}}>
+              :{a.port} · {a.score.toFixed(3)} · {a.srcIp}
+            </span>
+          </div>;
+        })}
+      </div>
+    </Panel>;
   }
 
   /* ─── ML MODELS TAB ─── */
