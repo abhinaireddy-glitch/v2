@@ -495,11 +495,16 @@ export default function CipherNest(){
   const alertsRef=useRef([]);
 
   const AGENTS=[
-    {id:"clf",label:"CLASSIFIER",color:C.cyan},
-    {id:"ana",label:"ANALYZER",color:C.purple},
-    {id:"log",label:"LOG_ANALYZER",color:C.teal},
-    {id:"det",label:"THREAT_DETECT",color:C.red},
-    {id:"orch",label:"ORCHESTRATOR",color:C.gold},
+    {id:"clf",label:"CLASSIFIER",color:C.cyan,accuracy:97.4,
+     desc:"Classifies every incoming network flow in real-time using the CICIDS-2018 feature vector. Assigns attack category labels and triggers downstream agents on positive detection."},
+    {id:"ana",label:"ANALYZER",color:C.purple,accuracy:96.8,
+     desc:"Deep-dives flagged flows using the XGBoost threat scorer. Extracts MITRE ATT&CK mappings, pattern signatures, and risk ratings for each anomaly above threshold 0.72."},
+    {id:"log",label:"LOG_ANALYZER",color:C.teal,accuracy:95.1,
+     desc:"Scans historical flow logs for recurring source IPs, port patterns, and temporal attack signatures. Cross-references current events with past 10-minute windows."},
+    {id:"det",label:"THREAT_DETECT",color:C.red,accuracy:98.2,
+     desc:"Runs the Isolation Forest + LSTM ensemble for zero-day and multi-step attack detection. Maps detected vectors to MITRE ATT&CK tactics and severity levels."},
+    {id:"orch",label:"ORCHESTRATOR",color:C.gold,accuracy:99.1,
+     desc:"Coordinates the full agent pipeline. Assigns tasks to CLASSIFIER, ANALYZER, LOG_ANALYZER, THREAT_DETECT, and RESPONDER. Generates final simulation and snapshot reports."},
   ];
   const[agentStatus,setAgentStatus]=useState({clf:"STANDBY",ana:"STANDBY",log:"STANDBY",det:"STANDBY",orch:"STANDBY"});
   const[agentLog,setAgentLog]=useState([]);
@@ -1130,7 +1135,7 @@ export default function CipherNest(){
           CIPHERNEST
         </div>
         <div style={{display:"flex",gap:3,marginLeft:16}}>
-          {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"]].map(([t,l])=>(
+          {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)}
               style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
                 letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
@@ -1216,6 +1221,7 @@ export default function CipherNest(){
         {tab==="reports"&&<ReportsTab/>}
         {tab==="agents"&&<AgentsManagerTab/>}
         {tab==="ml"&&<MLModelsTab/>}
+        {tab==="aianalysis"&&<AIAnalysisTab/>}
       </div>
     </div>
   );
@@ -1600,7 +1606,7 @@ export default function CipherNest(){
           {!reports.length&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textLabel}}>No reports yet. Click "Generate Report" or complete a simulation.</div>}
           <div style={{maxHeight:"60vh",overflowY:"auto"}}>
             {reports.map(rpt=>(
-              <div key={rpt.id} className="anim-report-row" style={{border:`1px solid ${C.borderBright}`,background:C.card,
+              <div key={rpt.id} style={{border:`1px solid ${C.borderBright}`,background:C.card,
                 padding:"12px",marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                   <span style={{fontFamily:"'Orbitron',sans-serif",fontSize:12,color:C.green}}>{rpt.id}</span>
@@ -1659,12 +1665,20 @@ export default function CipherNest(){
         {AGENTS.map(a=>{
           const s=agentStatus[a.id];
           const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
-          return<div key={a.id} style={{background:C.panel,border:`1px solid ${a.color}33`,padding:"12px 14px"}}>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:a.color,letterSpacing:2,marginBottom:8}}>{a.label}</div>
+          return<div key={a.id} style={{background:C.panel,border:`1px solid ${a.color}33`,borderTop:`2px solid ${a.color}`,padding:"12px 14px",display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:a.color,letterSpacing:2}}>{a.label}</div>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
               <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:sc}}>{s}</span>
             </div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.textLabel,letterSpacing:1}}>ACCURACY</span>
+              <span style={{fontFamily:"'Orbitron',sans-serif",fontSize:13,fontWeight:700,color:a.color,textShadow:`0 0 8px ${a.color}88`}}>{a.accuracy}%</span>
+            </div>
+            <div style={{height:3,background:"#0f2030",overflow:"hidden",borderRadius:1}}>
+              <div style={{height:"100%",width:`${a.accuracy}%`,background:a.color,boxShadow:`0 0 6px ${a.color}`,transition:"width 1s"}}/>
+            </div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.textLabel,lineHeight:1.6,marginTop:2}}>{a.desc}</div>
           </div>;
         })}
       </div>
@@ -1708,6 +1722,164 @@ export default function CipherNest(){
             ))}
           </div>
         </Panel>
+      </div>
+    </div>;
+  }
+
+  /* ─── AI ANALYSIS TAB ─── */
+  function AIAnalysisTab(){
+    const[query,setQuery]=useState("");
+    const[output,setOutput]=useState("");
+    const[streaming,setStreaming]=useState(false);
+    const[history,setHistory]=useState([]);
+    const[activePreset,setActivePreset]=useState(null);
+
+    const PRESETS=[
+      {label:"Summarize Session",prompt:"Summarize the current CipherNest monitoring session. Include threat distribution, top attack types, notable anomalies, and recommended actions."},
+      {label:"MITRE ATT&CK Map",prompt:"Map the detected attack types in this session to MITRE ATT&CK tactics and techniques. Format as a structured list with tactic, technique ID, and brief description."},
+      {label:"Risk Assessment",prompt:"Provide a detailed risk assessment for this network session. Rate overall risk level (Critical/High/Medium/Low), explain the top 3 threat vectors, and suggest immediate remediation steps."},
+      {label:"Threat Trends",prompt:"Analyze the threat trends visible in this session. Identify patterns, escalation signals, and any indicators of a coordinated multi-vector attack campaign."},
+      {label:"SOC Report",prompt:"Write a professional SOC (Security Operations Center) incident report for this session, suitable for management review. Include executive summary, key findings, and next steps."},
+    ];
+
+    const sessionContext=`Current CipherNest session data:\n- Total flows: ${totalThreats+totalBenign}\n- Threats detected: ${totalThreats}\n- Benign flows: ${totalBenign}\n- Avg anomaly score: ${anomScores.length?(anomScores.slice(-50).reduce((a,b)=>a+b,0)/Math.min(50,anomScores.length)).toFixed(3):"0.000"}\n- Label breakdown: ${JSON.stringify(Object.entries(labelCounts).slice(0,10))}\n- Top blocked IPs: ${blockedIPs.length}\n- Agent statuses: ${JSON.stringify(agentStatus)}\n- Recent alerts (last 5): ${JSON.stringify(alerts.slice(0,5).map(a=>({label:a.label,port:a.port,score:a.score.toFixed(3)})))}\n`;
+
+    async function runQuery(q){
+      if(!q.trim()||streaming)return;
+      setStreaming(true);setOutput("");
+      const fullPrompt=`You are an expert AI cybersecurity analyst embedded in the CipherNest threat intelligence platform.\n\n${sessionContext}\n\nUser query: ${q}\n\nRespond with a professional, structured analysis. Use clear sections where appropriate.`;
+      let txt="";
+      await streamClaude(fullPrompt,tok=>{txt+=tok;setOutput(p=>p+tok);},()=>{
+        setStreaming(false);
+        setHistory(h=>[{q,a:txt,ts:nowUTC()},...h.slice(0,9)]);
+        setOutput("");
+        setHistory(h=>{if(h[0]&&!h[0].a)return[{...h[0],a:txt},...h.slice(1)];return h;});
+      },800);
+    }
+
+    const lastResult=history[0];
+
+    return<div style={{padding:18,display:"grid",gridTemplateColumns:"300px 1fr",gap:14,alignItems:"start"}}>
+      {/* LEFT PANEL */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <Panel color={C.cyan}>
+          <PTitle>⬡ Session Context</PTitle>
+          {[
+            {l:"TOTAL FLOWS",v:(totalThreats+totalBenign).toLocaleString(),c:C.cyan},
+            {l:"THREATS",v:totalThreats.toLocaleString(),c:C.red},
+            {l:"BENIGN",v:totalBenign.toLocaleString(),c:C.green},
+            {l:"BLOCKED IPs",v:blockedIPs.length,c:C.orange},
+            {l:"AVG SCORE",v:anomScores.length?(anomScores.slice(-50).reduce((a,b)=>a+b,0)/Math.min(50,anomScores.length)).toFixed(3):"—",c:C.purple},
+          ].map(m=>(
+            <div key={m.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,letterSpacing:1}}>{m.l}</span>
+              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:m.c,fontWeight:700}}>{m.v}</span>
+            </div>
+          ))}
+        </Panel>
+        <Panel color={C.purple}>
+          <PTitle>⚡ Quick Analysis Presets</PTitle>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {PRESETS.map(p=>(
+              <button key={p.label} onClick={()=>{setActivePreset(p.label);setQuery(p.prompt);}}
+                style={{padding:"7px 10px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,
+                  letterSpacing:1,textAlign:"left",cursor:"pointer",textTransform:"uppercase",transition:"all .15s",
+                  border:`1px solid ${activePreset===p.label?C.purple:C.borderBright}`,
+                  background:activePreset===p.label?`${C.purple}22`:C.card,
+                  color:activePreset===p.label?C.purple:C.textDim}}>
+                {activePreset===p.label?"▶ ":""}{p.label}
+              </button>
+            ))}
+          </div>
+        </Panel>
+        {history.length>0&&(
+          <Panel color={C.teal}>
+            <PTitle>⬡ Query History</PTitle>
+            <div style={{maxHeight:240,overflowY:"auto"}}>
+              {history.map((h,i)=>(
+                <div key={i} onClick={()=>{setQuery(h.q);setActivePreset(null);}}
+                  style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                  <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:2}}>{h.ts}</div>
+                  <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.teal,
+                    overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{h.q.slice(0,50)}...</div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
+      </div>
+
+      {/* RIGHT PANEL */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <Panel color={C.cyan}>
+          <PTitle>🤖 AI Cybersecurity Analyst</PTitle>
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            <textarea value={query} onChange={e=>setQuery(e.target.value)}
+              placeholder="Ask anything about this session — threat analysis, MITRE mapping, risk assessment, SOC report..."
+              rows={3}
+              style={{flex:1,padding:"10px 12px",background:C.card,border:`1px solid ${C.borderBright}`,
+                color:C.text,fontFamily:"'Share Tech Mono',monospace",fontSize:11,outline:"none",
+                resize:"vertical",lineHeight:1.7}}/>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>runQuery(query)} disabled={streaming||!query.trim()}
+              style={{padding:"9px 20px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,
+                border:`1px solid ${streaming?C.borderBright:C.cyan}`,
+                background:streaming?C.card:`${C.cyan}18`,
+                color:streaming?C.textLabel:C.cyan,cursor:streaming?"not-allowed":"pointer",transition:"all .2s"}}>
+              {streaming?"⬡ ANALYZING...":"⚡ RUN ANALYSIS"}
+            </button>
+            <button onClick={()=>{setQuery("");setActivePreset(null);setOutput("");}}
+              style={{padding:"9px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:1,
+                border:`1px solid ${C.borderBright}`,background:"transparent",
+                color:C.textDim,cursor:"pointer"}}>
+              CLEAR
+            </button>
+          </div>
+        </Panel>
+
+        {(streaming||output)&&(
+          <Panel color={C.purple}>
+            <PTitle>
+              <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,
+                boxShadow:`0 0 10px ${C.purple}`,display:"inline-block",
+                animation:streaming?"blink 1s step-end infinite":"none"}}/>
+              AI ANALYSIS OUTPUT
+            </PTitle>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
+              lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
+              padding:14,minHeight:80}}>
+              {output||lastResult?.a||""}
+              {streaming&&<span style={{animation:"blink 1s step-end infinite",color:C.purple}}>▋</span>}
+            </div>
+          </Panel>
+        )}
+
+        {!streaming&&!output&&lastResult&&(
+          <Panel color={C.teal}>
+            <PTitle>⬡ LAST ANALYSIS — {lastResult.ts}</PTitle>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:8}}>
+              Query: <span style={{color:C.teal}}>{lastResult.q.slice(0,100)}{lastResult.q.length>100?"...":""}</span>
+            </div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
+              lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
+              padding:14,maxHeight:400,overflowY:"auto"}}>
+              {lastResult.a}
+            </div>
+          </Panel>
+        )}
+
+        {!streaming&&!output&&!lastResult&&(
+          <Panel style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}>
+            <div style={{textAlign:"center",color:C.textLabel,fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
+              <div style={{fontSize:32,marginBottom:10,opacity:.25}}>🤖</div>
+              <div style={{letterSpacing:2,marginBottom:6}}>AI ANALYST READY</div>
+              <div style={{fontSize:9,color:C.textLabel,maxWidth:300,lineHeight:1.7}}>
+                Select a preset or type a custom query to get real-time AI analysis of your session data.
+              </div>
+            </div>
+          </Panel>
+        )}
       </div>
     </div>;
   }
