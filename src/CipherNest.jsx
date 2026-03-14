@@ -468,6 +468,600 @@ function downloadReport(report){
 // ═════════════════════════════════════════════════════════════
 //  MAIN APP
 // ═════════════════════════════════════════════════════════════
+
+const ML_MODELS_DATA=[
+  {name:"Random Forest Classifier",type:"SUPERVISED ENSEMBLE",color:C.cyan,
+   metrics:[{l:"Accuracy",v:97.4},{l:"Precision",v:96.8},{l:"Recall",v:98.8},{l:"F1-Score",v:97.8}],
+   desc:"200 trees, max_depth=20. Trained on CICIDS-2017/2018 (2.8M flows). Primary classifier for 7 attack categories. SMOTE oversampling for class imbalance."},
+  {name:"XGBoost Threat Scorer",type:"GRADIENT BOOSTING",color:C.cyan,
+   metrics:[{l:"Accuracy",v:98.1},{l:"AUC-ROC",v:99.8},{l:"Speed",v:92},{l:"Log Loss",v:4}],
+   desc:"500 estimators, depth=6, lr=0.1. Best on DDoS+Bot detection. GPU-accelerated inference on 78-feature CICIDS input vector."},
+  {name:"Isolation Forest",type:"UNSUPERVISED ANOMALY",color:C.red,
+   metrics:[{l:"Anomaly Det.",v:97},{l:"FPR",v:2.1},{l:"Coverage",v:94},{l:"Contamination",v:1}],
+   desc:"100 estimators, contamination=0.01. Zero-day attack detection without labels. Sub-sampling 256 for real-time speed."},
+  {name:"LSTM Sequence Model",type:"DEEP LEARNING",color:C.purple,
+   metrics:[{l:"Accuracy",v:96.2},{l:"Val Acc",v:95.8},{l:"Val Loss",v:76},{l:"Epochs",v:100}],
+   desc:"Bidirectional LSTM (128 units). Detects multi-step attack campaigns across 60-step flow sequences."},
+  {name:"K-Means Clusterer",type:"UNSUPERVISED CLUSTERING",color:C.orange,
+   metrics:[{l:"Clusters",v:70},{l:"Silhouette",v:82},{l:"Coverage",v:96},{l:"Speed",v:95}],
+   desc:"7 clusters mapping to CICIDS attack families. MiniBatch K-Means for real-time stream processing."},
+  {name:"Ensemble Voter",type:"META-CLASSIFIER",color:C.green,
+   metrics:[{l:"Accuracy",v:98.6},{l:"Confidence",v:99.1},{l:"TPR",v:99.4},{l:"FPR",v:1.2}],
+   desc:"Weighted soft voting: RF(0.35)+XGB(0.35)+LSTM(0.20)+IF(0.10). Threshold 0.85 triggers auto-block."},
+];
+
+const ML_PRESETS=[
+  {label:"DDoS Attack",flowBytes:4550000,flowPkts:98234,synFlags:1,rstFlags:0,iatMean:0.01,pktLenStd:12,activeMean:0.01,duration:2.1},
+  {label:"Bot C2",flowBytes:89000,flowPkts:1234,synFlags:0,rstFlags:0,iatMean:1.22,pktLenStd:80,activeMean:2.1,duration:305},
+  {label:"Port Scan",flowBytes:1200,flowPkts:45,synFlags:1,rstFlags:1,iatMean:22.4,pktLenStd:5,activeMean:0.5,duration:120},
+  {label:"Brute Force",flowBytes:34000,flowPkts:210,synFlags:1,rstFlags:0,iatMean:0.92,pktLenStd:60,activeMean:0.9,duration:18.3},
+  {label:"Benign Traffic",flowBytes:5200,flowPkts:32,synFlags:0,rstFlags:0,iatMean:8.5,pktLenStd:200,activeMean:5.0,duration:45},
+];
+const ML_FIELDS=[
+  {k:"flowBytes",l:"Flow Bytes/s",min:0,max:5000000,step:1000,unit:"B/s"},
+  {k:"flowPkts",l:"Flow Packets/s",min:0,max:100000,step:10,unit:"pkt/s"},
+  {k:"synFlags",l:"SYN Flag Count",min:0,max:1,step:1,unit:""},
+  {k:"rstFlags",l:"RST Flag Count",min:0,max:1,step:1,unit:""},
+  {k:"iatMean",l:"IAT Mean (s)",min:0,max:60,step:0.01,unit:"s"},
+  {k:"pktLenStd",l:"Pkt Length Std",min:0,max:800,step:1,unit:""},
+  {k:"activeMean",l:"Active Mean (s)",min:0,max:20,step:0.1,unit:"s"},
+  {k:"duration",l:"Flow Duration",min:0,max:600,step:0.1,unit:"s"},
+];
+
+function MLModelsTab(){
+  const[mlTab,setMlTab]=useState("overview");
+  const[mlFields,setMlFields]=useState(ML_PRESETS[0]);
+  const[mlResult,setMlResult]=useState(null);
+  const[mlLoading,setMlLoading]=useState(false);
+  const[mlOutput,setMlOutput]=useState("");
+  const[mlHistory,setMlHistory]=useState([]);
+
+  function loadPreset(p){setMlFields(p);setMlResult(null);setMlOutput("");}
+  function setF(k,v){setMlFields(f=>({...f,[k]:parseFloat(v)||0}));setMlResult(null);setMlOutput("");}
+
+  async function runClassifier(){
+    setMlLoading(true);setMlResult(null);setMlOutput("");
+    const prompt=`You are a CICIDS-2018 ML ensemble. Classify this network flow. Respond ONLY with valid JSON, no markdown:\n{"label":"DDoS|Bot|PortScan|Brute Force-Web|Web Attacks-BF|Infiltration|BENIGN","confidence":<0-100>,"threat_score":<0.000-1.000>,"status":"BLOCKED|MONITOR|PASS","mitre_id":"<TA####>","mitre_tactic":"<name>","explanation":"<2 sentences>","model_votes":{"random_forest":{"label":"...","confidence":<0-100>},"xgboost":{"label":"...","confidence":<0-100>},"isolation_forest":{"label":"...","anomaly_score":<0.0-1.0>},"lstm":{"label":"...","confidence":<0-100>},"ensemble":{"label":"...","confidence":<0-100>}},"top_features":["<feat>: <val> — <impact>","<feat>: <val> — <impact>","<feat>: <val> — <impact>"]}\nFlow: Bytes/s:${mlFields.flowBytes} Pkts/s:${mlFields.flowPkts} SYN:${mlFields.synFlags} RST:${mlFields.rstFlags} IAT:${mlFields.iatMean}s PktStd:${mlFields.pktLenStd} Active:${mlFields.activeMean}s Dur:${mlFields.duration}s`;
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,
+          messages:[{role:"user",content:prompt}]}),
+      });
+      if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err?.error?.message||`HTTP ${res.status}`);}
+      const data=await res.json();
+      const text=data.content?.find(b=>b.type==="text")?.text||"";
+      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
+      setMlResult(parsed);
+      setMlHistory(h=>[{...mlFields,...parsed,ts:nowUTC()},...h.slice(0,9)]);
+    }catch(e){setMlResult({error:`Classification failed — ${e.message||"API error"}`});}
+    setMlLoading(false);
+  }
+
+  const sc=mlResult&&!mlResult.error
+    ?mlResult.status==="BLOCKED"?C.red:mlResult.status==="MONITOR"?C.orange:C.green
+    :C.textDim;
+
+  const LABEL_C={"DDoS":C.red,"Bot":C.purple,"PortScan":C.gold,"Brute Force-Web":C.red,"Web Attacks-BF":C.cyan,"Infiltration":C.orange,"BENIGN":C.green};
+
+  return<div style={{padding:18}}>
+    {/* Sub-tab bar */}
+    <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
+      {[["overview","⬡ MODEL OVERVIEW"],["classifier","⚡ LIVE AI CLASSIFIER"]].map(([k,l])=>(
+        <button key={k} onClick={()=>setMlTab(k)}
+          style={{padding:"5px 16px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",
+            border:`1px solid ${mlTab===k?C.cyan:"transparent"}`,
+            background:mlTab===k?`${C.cyan}18`:"transparent",
+            color:mlTab===k?C.cyan:C.textDim,cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
+          {l}
+        </button>
+      ))}
+    </div>
+
+    {/* OVERVIEW */}
+    {mlTab==="overview"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:14}}>
+        {ML_MODELS_DATA.map(m=>(
+          <div key={m.name} style={{background:C.panel,border:`1px solid ${C.border}`,padding:14,position:"relative",borderTop:`2px solid ${m.color}`}}>
+            <PanelCorners color={m.color}/>
+            <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:11,color:m.color,letterSpacing:1,marginBottom:3}}>{m.name}</div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.textLabel,letterSpacing:2,marginBottom:10}}>{m.type}</div>
+            {m.metrics.map(x=>(
+              <div key={x.l} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>{x.l}</span>
+                  <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:m.color}}>{x.v}%</span>
+                </div>
+                <BarFill pct={x.v} color={m.color}/>
+              </div>
+            ))}
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,lineHeight:1.7,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}>{m.desc}</div>
+          </div>
+        ))}
+      </div>
+      {/* Comparison table */}
+      <Panel color={C.cyan}>
+        <PTitle>⬡ Model Performance Comparison — CICIDS-2018 Test Set</PTitle>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
+            <thead>
+              <tr style={{borderBottom:`1px solid ${C.borderBright}`}}>
+                {["MODEL","TYPE","ACCURACY","AUC-ROC","FPR","SPEED","STATUS"].map(h=>(
+                  <th key={h} style={{padding:"7px 10px",textAlign:"left",fontSize:8,letterSpacing:2,color:C.textLabel,fontWeight:400}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                {name:"Random Forest",type:"Supervised",acc:"97.4%",auc:"98.2%",fpr:"2.1%",speed:"Fast",status:"DEPLOYED",sc:C.green},
+                {name:"XGBoost",type:"Supervised",acc:"98.1%",auc:"99.8%",fpr:"1.8%",speed:"Fast",status:"DEPLOYED",sc:C.green},
+                {name:"Isolation Forest",type:"Unsupervised",acc:"97.0%",auc:"96.5%",fpr:"2.1%",speed:"Fast",status:"DEPLOYED",sc:C.green},
+                {name:"LSTM",type:"Deep Learning",acc:"96.2%",auc:"97.1%",fpr:"2.9%",speed:"Medium",status:"DEPLOYED",sc:C.green},
+                {name:"K-Means",type:"Clustering",acc:"82.0%",auc:"85.3%",fpr:"6.2%",speed:"Fast",status:"SUPPORT",sc:C.cyan},
+                {name:"Ensemble Voter",type:"Meta",acc:"98.6%",auc:"99.4%",fpr:"1.2%",speed:"Fast",status:"PRIMARY",sc:C.cyan},
+              ].map(r=>(
+                <tr key={r.name} style={{borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"8px 10px",color:C.text,fontWeight:700}}>{r.name}</td>
+                  <td style={{padding:"8px 10px",color:C.textDim}}>{r.type}</td>
+                  <td style={{padding:"8px 10px",color:C.cyan}}>{r.acc}</td>
+                  <td style={{padding:"8px 10px",color:C.green}}>{r.auc}</td>
+                  <td style={{padding:"8px 10px",color:C.orange}}>{r.fpr}</td>
+                  <td style={{padding:"8px 10px",color:C.textDim}}>{r.speed}</td>
+                  <td style={{padding:"8px 10px"}}>
+                    <span style={{padding:"2px 8px",fontSize:8,letterSpacing:1,
+                      background:`${r.sc}18`,color:r.sc,border:`1px solid ${r.sc}`,
+                      fontFamily:"'Share Tech Mono',monospace"}}>{r.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </>}
+
+    {/* LIVE CLASSIFIER */}
+    {mlTab==="classifier"&&<div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:14}}>
+      {/* LEFT */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <Panel color={C.cyan}>
+          <PTitle>⬡ Traffic Preset</PTitle>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {ML_PRESETS.map(p=>(
+              <button key={p.label} onClick={()=>loadPreset(p)}
+                style={{padding:"6px 10px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:1,
+                  textAlign:"left",cursor:"pointer",textTransform:"uppercase",transition:"all .15s",
+                  border:`1px solid ${mlFields.label===p.label?C.cyan:C.borderBright}`,
+                  background:mlFields.label===p.label?`${C.cyan}18`:C.card,
+                  color:mlFields.label===p.label?C.cyan:C.textDim}}>
+                {mlFields.label===p.label?"▶ ":""}{p.label}
+              </button>
+            ))}
+          </div>
+        </Panel>
+        <Panel color={C.purple}>
+          <PTitle>⬡ CICIDS Flow Features</PTitle>
+          {ML_FIELDS.map(f=>(
+            <div key={f.k} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>{f.l}</span>
+                <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.cyan}}>{mlFields[f.k]}{f.unit?` ${f.unit}`:""}</span>
+              </div>
+              <input type="range" min={f.min} max={f.max} step={f.step} value={mlFields[f.k]}
+                onChange={e=>setF(f.k,e.target.value)}
+                style={{width:"100%",accentColor:C.purple,height:3,cursor:"pointer",
+                  WebkitAppearance:"none",appearance:"none",background:"#0f2030",outline:"none"}}/>
+            </div>
+          ))}
+          <Btn color={C.purple} onClick={runClassifier} disabled={mlLoading}
+            style={{width:"100%",justifyContent:"center",marginTop:4,letterSpacing:2}}>
+            {mlLoading?"⬡ CLASSIFYING...":"⚡ RUN ENSEMBLE CLASSIFIER"}
+          </Btn>
+        </Panel>
+      </div>
+
+      {/* RIGHT */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {!mlResult&&!mlLoading&&(
+          <Panel style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:160}}>
+            <div style={{textAlign:"center",color:C.textLabel,fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
+              <div style={{fontSize:24,marginBottom:8,opacity:.3}}>⬡</div>
+              Configure flow features and run classifier
+            </div>
+          </Panel>
+        )}
+        {mlLoading&&(
+          <Panel color={C.orange} style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:120}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.orange,letterSpacing:2,marginBottom:6}}>⬡ ENSEMBLE MODELS PROCESSING</div>
+              <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>RF → XGBoost → LSTM → Isolation Forest → Voter</div>
+            </div>
+          </Panel>
+        )}
+        {mlResult&&mlResult.error&&(
+          <Panel color={C.red}><div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.red}}>{mlResult.error}</div></Panel>
+        )}
+        {mlResult&&!mlResult.error&&<>
+          {/* Verdict */}
+          <div style={{background:C.panel,border:`1px solid ${sc}`,padding:14,position:"relative"}}>
+            <PanelCorners color={sc}/>
+            <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:sc,boxShadow:`0 0 10px ${sc}`}}/>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:10}}>
+              <div>
+                <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.textLabel,marginBottom:4}}>ENSEMBLE VERDICT</div>
+                <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:20,fontWeight:700,color:sc,letterSpacing:2,textShadow:`0 0 12px ${sc}88`}}>{mlResult.label}</div>
+                <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim,marginTop:3}}>{mlResult.mitre_id} — {mlResult.mitre_tactic}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                {[["CONFIDENCE",`${mlResult.confidence}%`],["THREAT SCORE",mlResult.threat_score],["DECISION",mlResult.status]].map(([l,v])=>(
+                  <div key={l} style={{background:C.card,border:`1px solid ${l==="DECISION"?sc:C.border}`,padding:"8px 14px",textAlign:"center"}}>
+                    <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.textLabel,letterSpacing:1.5,marginBottom:4}}>{l}</div>
+                    <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:16,fontWeight:700,color:sc,textShadow:`0 0 8px ${sc}88`}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.7,borderTop:`1px solid ${C.border}`,paddingTop:8}}>{mlResult.explanation}</div>
+          </div>
+          {/* Model votes */}
+          {mlResult.model_votes&&(
+            <Panel color={C.purple}>
+              <PTitle>⬡ Individual Model Votes</PTitle>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                {[{name:"Random Forest",key:"random_forest",color:C.cyan},{name:"XGBoost",key:"xgboost",color:C.cyan},{name:"Isolation Forest",key:"isolation_forest",color:C.red},{name:"LSTM",key:"lstm",color:C.purple},{name:"Ensemble",key:"ensemble",color:C.green}].map(({name,key,color})=>{
+                  const v=mlResult.model_votes[key]||{};
+                  const conf=v.confidence??(v.anomaly_score!=null?Math.round(v.anomaly_score*100):0);
+                  return<div key={key} style={{background:C.card,border:`1px solid ${color}33`,borderTop:`2px solid ${color}`,padding:"8px 10px"}}>
+                    <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:color,letterSpacing:1,marginBottom:4}}>{name}</div>
+                    <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.text,marginBottom:5,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{v.label||"—"}</div>
+                    <BarFill pct={conf} color={color}/>
+                    <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:color,marginTop:3}}>{conf}%</div>
+                  </div>;
+                })}
+              </div>
+            </Panel>
+          )}
+          {/* Top features */}
+          {mlResult.top_features&&(
+            <Panel color={C.red}>
+              <PTitle>⬡ Key Feature Contributions</PTitle>
+              {mlResult.top_features.map((f,i)=>(
+                <div key={i} style={{display:"flex",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.red,flexShrink:0}}>{i+1}.</span>
+                  <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.5}}>{f}</span>
+                </div>
+              ))}
+            </Panel>
+          )}
+        </>}
+        {/* History */}
+        {mlHistory.length>0&&(
+          <Panel color={C.teal}>
+            <PTitle>⬡ Classification History</PTitle>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'Share Tech Mono',monospace",fontSize:9}}>
+                <thead><tr style={{borderBottom:`1px solid ${C.borderBright}`}}>
+                  {["TIME","BYTES/S","LABEL","CONF","SCORE","STATUS"].map(h=>(
+                    <th key={h} style={{padding:"5px 8px",textAlign:"left",fontSize:8,letterSpacing:1.5,color:C.textLabel,fontWeight:400}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {mlHistory.map((h,i)=>{
+                    const hsc=h.status==="BLOCKED"?C.red:h.status==="MONITOR"?C.orange:C.green;
+                    return<tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"6px 8px",color:C.textLabel}}>{h.ts}</td>
+                      <td style={{padding:"6px 8px",color:C.textDim}}>{fmtBps(h.flowBytes||0)}</td>
+                      <td style={{padding:"6px 8px",color:LABEL_C[h.label]||C.textDim}}>{h.label}</td>
+                      <td style={{padding:"6px 8px",color:C.cyan}}>{h.confidence}%</td>
+                      <td style={{padding:"6px 8px",color:C.orange}}>{h.threat_score}</td>
+                      <td style={{padding:"6px 8px",color:hsc,fontWeight:700}}>{h.status}</td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
+      </div>
+    </div>}
+  </div>;
+}
+
+
+
+
+function AIAnalysisTab({totalThreats,totalBenign,anomScores,blockedIPs,labelCounts,agentStatus,alerts}){
+  const[query,setQuery]=useState("");
+  const[output,setOutput]=useState("");
+  const[streaming,setStreaming]=useState(false);
+  const[history,setHistory]=useState([]);
+  const[activePreset,setActivePreset]=useState(null);
+
+  const PRESETS=[
+    {label:"Summarize Session",prompt:"Summarize the current CipherNest monitoring session. Include threat distribution, top attack types, notable anomalies, and recommended actions."},
+    {label:"MITRE ATT&CK Map",prompt:"Map the detected attack types in this session to MITRE ATT&CK tactics and techniques. Format as a structured list with tactic, technique ID, and brief description."},
+    {label:"Risk Assessment",prompt:"Provide a detailed risk assessment for this network session. Rate overall risk level (Critical/High/Medium/Low), explain the top 3 threat vectors, and suggest immediate remediation steps."},
+    {label:"Threat Trends",prompt:"Analyze the threat trends visible in this session. Identify patterns, escalation signals, and any indicators of a coordinated multi-vector attack campaign."},
+    {label:"SOC Report",prompt:"Write a professional SOC (Security Operations Center) incident report for this session, suitable for management review. Include executive summary, key findings, and next steps."},
+  ];
+
+  const sessionContext=`Current CipherNest session data:\n- Total flows: ${totalThreats+totalBenign}\n- Threats detected: ${totalThreats}\n- Benign flows: ${totalBenign}\n- Avg anomaly score: ${anomScores.length?(anomScores.slice(-50).reduce((a,b)=>a+b,0)/Math.min(50,anomScores.length)).toFixed(3):"0.000"}\n- Label breakdown: ${JSON.stringify(Object.entries(labelCounts).slice(0,10))}\n- Top blocked IPs: ${blockedIPs.length}\n- Agent statuses: ${JSON.stringify(agentStatus)}\n- Recent alerts (last 5): ${JSON.stringify(alerts.slice(0,5).map(a=>({label:a.label,port:a.port,score:a.score.toFixed(3)})))}\n`;
+
+  async function runQuery(q){
+    if(!q.trim()||streaming)return;
+    setStreaming(true);setOutput("");
+    const fullPrompt=`You are an expert AI cybersecurity analyst embedded in the CipherNest threat intelligence platform.\n\n${sessionContext}\n\nUser query: ${q}\n\nRespond with a professional, structured analysis. Use clear sections where appropriate.`;
+    let txt="";
+    await streamClaude(fullPrompt,tok=>{txt+=tok;setOutput(p=>p+tok);},()=>{
+      setStreaming(false);
+      setHistory(h=>[{q,a:txt,ts:nowUTC()},...h.slice(0,9)]);
+      setOutput("");
+      setHistory(h=>{if(h[0]&&!h[0].a)return[{...h[0],a:txt},...h.slice(1)];return h;});
+    },800);
+  }
+
+  const lastResult=history[0];
+
+  return<div style={{padding:18,display:"grid",gridTemplateColumns:"300px 1fr",gap:14,alignItems:"start"}}>
+    {/* LEFT PANEL */}
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <Panel color={C.cyan}>
+        <PTitle>⬡ Session Context</PTitle>
+        {[
+          {l:"TOTAL FLOWS",v:(totalThreats+totalBenign).toLocaleString(),c:C.cyan},
+          {l:"THREATS",v:totalThreats.toLocaleString(),c:C.red},
+          {l:"BENIGN",v:totalBenign.toLocaleString(),c:C.green},
+          {l:"BLOCKED IPs",v:blockedIPs.length,c:C.orange},
+          {l:"AVG SCORE",v:anomScores.length?(anomScores.slice(-50).reduce((a,b)=>a+b,0)/Math.min(50,anomScores.length)).toFixed(3):"—",c:C.purple},
+        ].map(m=>(
+          <div key={m.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,letterSpacing:1}}>{m.l}</span>
+            <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:m.c,fontWeight:700}}>{m.v}</span>
+          </div>
+        ))}
+      </Panel>
+      <Panel color={C.purple}>
+        <PTitle>⚡ Quick Analysis Presets</PTitle>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {PRESETS.map(p=>(
+            <button key={p.label} onClick={()=>{setActivePreset(p.label);setQuery(p.prompt);}}
+              style={{padding:"7px 10px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,
+                letterSpacing:1,textAlign:"left",cursor:"pointer",textTransform:"uppercase",transition:"all .15s",
+                border:`1px solid ${activePreset===p.label?C.purple:C.borderBright}`,
+                background:activePreset===p.label?`${C.purple}22`:C.card,
+                color:activePreset===p.label?C.purple:C.textDim}}>
+              {activePreset===p.label?"▶ ":""}{p.label}
+            </button>
+          ))}
+        </div>
+      </Panel>
+      {history.length>0&&(
+        <Panel color={C.teal}>
+          <PTitle>⬡ Query History</PTitle>
+          <div style={{maxHeight:240,overflowY:"auto"}}>
+            {history.map((h,i)=>(
+              <div key={i} onClick={()=>{setQuery(h.q);setActivePreset(null);}}
+                style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:2}}>{h.ts}</div>
+                <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.teal,
+                  overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{h.q.slice(0,50)}...</div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+    </div>
+
+    {/* RIGHT PANEL */}
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <Panel color={C.cyan}>
+        <PTitle>🤖 AI Cybersecurity Analyst</PTitle>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          <textarea value={query} onChange={e=>setQuery(e.target.value)}
+            placeholder="Ask anything about this session — threat analysis, MITRE mapping, risk assessment, SOC report..."
+            rows={3}
+            style={{flex:1,padding:"10px 12px",background:C.card,border:`1px solid ${C.borderBright}`,
+              color:C.text,fontFamily:"'Share Tech Mono',monospace",fontSize:11,outline:"none",
+              resize:"vertical",lineHeight:1.7}}/>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>runQuery(query)} disabled={streaming||!query.trim()}
+            style={{padding:"9px 20px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,
+              border:`1px solid ${streaming?C.borderBright:C.cyan}`,
+              background:streaming?C.card:`${C.cyan}18`,
+              color:streaming?C.textLabel:C.cyan,cursor:streaming?"not-allowed":"pointer",transition:"all .2s"}}>
+            {streaming?"⬡ ANALYZING...":"⚡ RUN ANALYSIS"}
+          </button>
+          <button onClick={()=>{setQuery("");setActivePreset(null);setOutput("");}}
+            style={{padding:"9px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:1,
+              border:`1px solid ${C.borderBright}`,background:"transparent",
+              color:C.textDim,cursor:"pointer"}}>
+            CLEAR
+          </button>
+        </div>
+      </Panel>
+
+      {(streaming||output)&&(
+        <Panel color={C.purple}>
+          <PTitle>
+            <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,
+              boxShadow:`0 0 10px ${C.purple}`,display:"inline-block",
+              animation:streaming?"blink 1s step-end infinite":"none"}}/>
+            AI ANALYSIS OUTPUT
+          </PTitle>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
+            lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
+            padding:14,minHeight:80}}>
+            {output||lastResult?.a||""}
+            {streaming&&<span style={{animation:"blink 1s step-end infinite",color:C.purple}}>▋</span>}
+          </div>
+        </Panel>
+      )}
+
+      {!streaming&&!output&&lastResult&&(
+        <Panel color={C.teal}>
+          <PTitle>⬡ LAST ANALYSIS — {lastResult.ts}</PTitle>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:8}}>
+            Query: <span style={{color:C.teal}}>{lastResult.q.slice(0,100)}{lastResult.q.length>100?"...":""}</span>
+          </div>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
+            lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
+            padding:14,maxHeight:400,overflowY:"auto"}}>
+            {lastResult.a}
+          </div>
+        </Panel>
+      )}
+
+      {!streaming&&!output&&!lastResult&&(
+        <Panel style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}>
+          <div style={{textAlign:"center",color:C.textLabel,fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
+            <div style={{fontSize:32,marginBottom:10,opacity:.25}}>🤖</div>
+            <div style={{letterSpacing:2,marginBottom:6}}>AI ANALYST READY</div>
+            <div style={{fontSize:9,color:C.textLabel,maxWidth:300,lineHeight:1.7}}>
+              Select a preset or type a custom query to get real-time AI analysis of your session data.
+            </div>
+          </div>
+        </Panel>
+      )}
+    </div>
+  </div>;
+}
+
+
+return(
+  <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Rajdhani',sans-serif",
+    fontSize:13,color:C.text,overflow:"hidden",position:"relative",...isSimBorder}}>
+    <style>{CSS}</style>
+
+    {lockdown&&<div style={{position:"fixed",inset:0,zIndex:9000,pointerEvents:"none",display:"flex",alignItems:"stretch"}}>
+      <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
+      <div style={{flex:1,background:"rgba(255,45,85,0.06)"}}/>
+      <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
+      <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
+      <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
+      <div style={{position:"absolute",top:"42%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"all"}}>
+        <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:26,fontWeight:900,color:C.red,
+          textShadow:`0 0 30px ${C.red}`,letterSpacing:5,animation:"lockFlash .3s ease-in-out infinite",marginBottom:16}}>
+          ⚠ FORCE LOCKDOWN ACTIVE
+        </div>
+        <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:"#ff6688",letterSpacing:2,marginBottom:16}}>
+          ALL CONNECTIONS SEVERED — PERIMETER ISOLATED
+        </div>
+        <button onClick={()=>setLockdown(false)}
+          style={{padding:"8px 24px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,letterSpacing:2,
+            border:`1px solid ${C.red}`,background:"rgba(255,45,85,.2)",color:"#ff8899",
+            cursor:"pointer",textTransform:"uppercase"}}>
+          CANCEL LOCKDOWN
+        </button>
+      </div>
+    </div>}
+
+    {showSimModal&&<SimModal onStart={startSim} onClose={()=>setShowSimModal(false)}/>}
+
+    {/* TOPBAR */}
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 18px",
+      height:50,background:"#040710",borderBottom:`1px solid ${C.border}`,
+      position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,fontFamily:"'Orbitron',sans-serif",
+        fontSize:17,fontWeight:900,color:C.cyan,letterSpacing:3,flexShrink:0}}>
+        <div style={{width:28,height:28,background:C.cyan,
+          clipPath:"polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
+          boxShadow:`0 0 18px ${C.cyan}`,animation:"hexPulse 3s ease-in-out infinite"}}/>
+        CIPHERNEST
+      </div>
+      <div style={{display:"flex",gap:3,marginLeft:16}}>
+        {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
+              letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
+              border:`1px solid ${tab===t?C.cyan:"transparent"}`,
+              background:tab===t?`${C.cyan}18`:"transparent",
+              cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto",flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,fontFamily:"'Share Tech Mono',monospace",
+          fontSize:9,color:isSimMode?C.purple:C.cyan}}>
+          {isSimMode?"SIMULATION":"LIVE"}
+          <div onClick={handleModeToggle}
+            style={{width:36,height:18,borderRadius:9,position:"relative",cursor:"pointer",
+              background:isSimMode?C.purple:C.cyan,
+              boxShadow:`0 0 10px ${isSimMode?C.purple:C.cyan}`,transition:"background .3s"}}>
+            <span style={{position:"absolute",top:3,width:12,height:12,borderRadius:"50%",
+              background:"#fff",transition:"right .3s",right:isSimMode?3:19}}/>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
+          border:`1px solid ${C.green}`,fontFamily:"'Share Tech Mono',monospace",
+          fontSize:9,letterSpacing:"1.5px",color:C.green}}>
+          <Dot color={C.green}/> ALL SYSTEMS NOMINAL
+        </div>
+        <LiveClock/>
+        <div style={{padding:"4px 12px",background:`${C.red}11`,border:`1px solid ${C.red}`,
+          fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",color:C.red,
+          animation:"pulseRed 2s ease-in-out infinite"}}>
+          ⚠ {totalThreats>50?"CRITICAL":totalThreats>10?"HIGH":"MEDIUM"}
+        </div>
+      </div>
+    </div>
+
+    {/* TICKER */}
+    <div style={{background:"#030608",borderBottom:`1px solid ${C.border}`,
+      padding:"5px 18px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
+      color:C.textDim,display:"flex",alignItems:"center",gap:6,overflow:"hidden",whiteSpace:"nowrap"}}>
+      <Dot color={isSimMode?C.purple:C.cyan}/>
+      <span style={{animation:"ticker 45s linear infinite",display:"inline-block"}}>
+        {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
+        <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
+        {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
+        {" "}· CLASSIFIER: <span style={{color:C.green}}>{agentStatus.clf}</span>
+        {" "}· ANALYZER: <span style={{color:C.purple}}>{agentStatus.ana}</span>
+        {" "}· LOG_ANALYZER: <span style={{color:C.teal}}>{agentStatus.log}</span>
+        {" "}· THREAT_DETECT: <span style={{color:C.red}}>{agentStatus.det}</span>
+        {" "}· ORCHESTRATOR: <span style={{color:C.gold}}>{agentStatus.orch}</span>
+        {" "}· Blocked IPs: <span style={{color:C.red}}>{blockedIPs.length}</span>
+        &nbsp;&nbsp;&nbsp;
+        {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
+        <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
+        {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
+      </span>
+    </div>
+
+    {/* AGENT STATUS BAR */}
+    <div style={{display:"flex",alignItems:"center",gap:12,padding:"7px 18px",
+      background:"#050a10",borderBottom:`1px solid ${C.border}`,
+      fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,flexWrap:"wrap"}}>
+      <span style={{fontSize:9,color:C.textLabel,letterSpacing:2}}>AGENTS:</span>
+      {AGENTS.map(a=>{
+        const s=agentStatus[a.id];
+        const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
+        return<div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
+          border:`1px solid ${C.borderBright}`,background:C.card}}>
+          <span style={{fontSize:9,color:a.color}}>{a.label}</span>
+          <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
+          <span style={{fontSize:9,color:sc}}>{s}</span>
+        </div>;
+      })}
+      <span style={{marginLeft:"auto",fontSize:9,color:C.textLabel}}>
+        {totalFlows.toLocaleString()} flows · {blockedIPs.length} blocked
+      </span>
+    </div>
+
+    {/* TAB CONTENT */}
+    <div style={{overflowY:"auto",maxHeight:"calc(100vh - 138px)"}}>
+      {tab==="dashboard"&&<DashboardTab/>}
+      {tab==="simulation"&&<SimulationTab/>}
+      {tab==="reports"&&<ReportsTab/>}
+      {tab==="agents"&&<AgentsManagerTab/>}
+      {tab==="ml"&&<MLModelsTab/>}
+      {tab==="aianalysis"&&<AIAnalysisTab totalThreats={totalThreats} totalBenign={totalBenign} anomScores={anomScores} blockedIPs={blockedIPs} labelCounts={labelCounts} agentStatus={agentStatus} alerts={alerts}/>}
+    </div>
+  </div>
+);
+
+
 export default function CipherNest(){
   const[tab,setTab]=useState("dashboard");
   const[mode,setMode]=useState("live");
@@ -795,305 +1389,6 @@ export default function CipherNest(){
   const isSimBorder=isSimMode?{outline:`2px solid ${C.purple}`}:{};
 
 
-  const ML_MODELS_DATA=[
-    {name:"Random Forest Classifier",type:"SUPERVISED ENSEMBLE",color:C.cyan,
-     metrics:[{l:"Accuracy",v:97.4},{l:"Precision",v:96.8},{l:"Recall",v:98.8},{l:"F1-Score",v:97.8}],
-     desc:"200 trees, max_depth=20. Trained on CICIDS-2017/2018 (2.8M flows). Primary classifier for 7 attack categories. SMOTE oversampling for class imbalance."},
-    {name:"XGBoost Threat Scorer",type:"GRADIENT BOOSTING",color:C.cyan,
-     metrics:[{l:"Accuracy",v:98.1},{l:"AUC-ROC",v:99.8},{l:"Speed",v:92},{l:"Log Loss",v:4}],
-     desc:"500 estimators, depth=6, lr=0.1. Best on DDoS+Bot detection. GPU-accelerated inference on 78-feature CICIDS input vector."},
-    {name:"Isolation Forest",type:"UNSUPERVISED ANOMALY",color:C.red,
-     metrics:[{l:"Anomaly Det.",v:97},{l:"FPR",v:2.1},{l:"Coverage",v:94},{l:"Contamination",v:1}],
-     desc:"100 estimators, contamination=0.01. Zero-day attack detection without labels. Sub-sampling 256 for real-time speed."},
-    {name:"LSTM Sequence Model",type:"DEEP LEARNING",color:C.purple,
-     metrics:[{l:"Accuracy",v:96.2},{l:"Val Acc",v:95.8},{l:"Val Loss",v:76},{l:"Epochs",v:100}],
-     desc:"Bidirectional LSTM (128 units). Detects multi-step attack campaigns across 60-step flow sequences."},
-    {name:"K-Means Clusterer",type:"UNSUPERVISED CLUSTERING",color:C.orange,
-     metrics:[{l:"Clusters",v:70},{l:"Silhouette",v:82},{l:"Coverage",v:96},{l:"Speed",v:95}],
-     desc:"7 clusters mapping to CICIDS attack families. MiniBatch K-Means for real-time stream processing."},
-    {name:"Ensemble Voter",type:"META-CLASSIFIER",color:C.green,
-     metrics:[{l:"Accuracy",v:98.6},{l:"Confidence",v:99.1},{l:"TPR",v:99.4},{l:"FPR",v:1.2}],
-     desc:"Weighted soft voting: RF(0.35)+XGB(0.35)+LSTM(0.20)+IF(0.10). Threshold 0.85 triggers auto-block."},
-  ];
-
-  const ML_PRESETS=[
-    {label:"DDoS Attack",flowBytes:4550000,flowPkts:98234,synFlags:1,rstFlags:0,iatMean:0.01,pktLenStd:12,activeMean:0.01,duration:2.1},
-    {label:"Bot C2",flowBytes:89000,flowPkts:1234,synFlags:0,rstFlags:0,iatMean:1.22,pktLenStd:80,activeMean:2.1,duration:305},
-    {label:"Port Scan",flowBytes:1200,flowPkts:45,synFlags:1,rstFlags:1,iatMean:22.4,pktLenStd:5,activeMean:0.5,duration:120},
-    {label:"Brute Force",flowBytes:34000,flowPkts:210,synFlags:1,rstFlags:0,iatMean:0.92,pktLenStd:60,activeMean:0.9,duration:18.3},
-    {label:"Benign Traffic",flowBytes:5200,flowPkts:32,synFlags:0,rstFlags:0,iatMean:8.5,pktLenStd:200,activeMean:5.0,duration:45},
-  ];
-  const ML_FIELDS=[
-    {k:"flowBytes",l:"Flow Bytes/s",min:0,max:5000000,step:1000,unit:"B/s"},
-    {k:"flowPkts",l:"Flow Packets/s",min:0,max:100000,step:10,unit:"pkt/s"},
-    {k:"synFlags",l:"SYN Flag Count",min:0,max:1,step:1,unit:""},
-    {k:"rstFlags",l:"RST Flag Count",min:0,max:1,step:1,unit:""},
-    {k:"iatMean",l:"IAT Mean (s)",min:0,max:60,step:0.01,unit:"s"},
-    {k:"pktLenStd",l:"Pkt Length Std",min:0,max:800,step:1,unit:""},
-    {k:"activeMean",l:"Active Mean (s)",min:0,max:20,step:0.1,unit:"s"},
-    {k:"duration",l:"Flow Duration",min:0,max:600,step:0.1,unit:"s"},
-  ];
-
-  function MLModelsTab(){
-    const[mlTab,setMlTab]=useState("overview");
-    const[mlFields,setMlFields]=useState(ML_PRESETS[0]);
-    const[mlResult,setMlResult]=useState(null);
-    const[mlLoading,setMlLoading]=useState(false);
-    const[mlOutput,setMlOutput]=useState("");
-    const[mlHistory,setMlHistory]=useState([]);
-
-    function loadPreset(p){setMlFields(p);setMlResult(null);setMlOutput("");}
-    function setF(k,v){setMlFields(f=>({...f,[k]:parseFloat(v)||0}));setMlResult(null);setMlOutput("");}
-
-    async function runClassifier(){
-      setMlLoading(true);setMlResult(null);setMlOutput("");
-      const prompt=`You are a CICIDS-2018 ML ensemble. Classify this network flow. Respond ONLY with valid JSON, no markdown:\n{"label":"DDoS|Bot|PortScan|Brute Force-Web|Web Attacks-BF|Infiltration|BENIGN","confidence":<0-100>,"threat_score":<0.000-1.000>,"status":"BLOCKED|MONITOR|PASS","mitre_id":"<TA####>","mitre_tactic":"<name>","explanation":"<2 sentences>","model_votes":{"random_forest":{"label":"...","confidence":<0-100>},"xgboost":{"label":"...","confidence":<0-100>},"isolation_forest":{"label":"...","anomaly_score":<0.0-1.0>},"lstm":{"label":"...","confidence":<0-100>},"ensemble":{"label":"...","confidence":<0-100>}},"top_features":["<feat>: <val> — <impact>","<feat>: <val> — <impact>","<feat>: <val> — <impact>"]}\nFlow: Bytes/s:${mlFields.flowBytes} Pkts/s:${mlFields.flowPkts} SYN:${mlFields.synFlags} RST:${mlFields.rstFlags} IAT:${mlFields.iatMean}s PktStd:${mlFields.pktLenStd} Active:${mlFields.activeMean}s Dur:${mlFields.duration}s`;
-      try{
-        const res=await fetch("https://api.anthropic.com/v1/messages",{
-          method:"POST",headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
-          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,
-            messages:[{role:"user",content:prompt}]}),
-        });
-        if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err?.error?.message||`HTTP ${res.status}`);}
-        const data=await res.json();
-        const text=data.content?.find(b=>b.type==="text")?.text||"";
-        const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
-        setMlResult(parsed);
-        setMlHistory(h=>[{...mlFields,...parsed,ts:nowUTC()},...h.slice(0,9)]);
-      }catch(e){setMlResult({error:`Classification failed — ${e.message||"API error"}`});}
-      setMlLoading(false);
-    }
-
-    const sc=mlResult&&!mlResult.error
-      ?mlResult.status==="BLOCKED"?C.red:mlResult.status==="MONITOR"?C.orange:C.green
-      :C.textDim;
-
-    const LABEL_C={"DDoS":C.red,"Bot":C.purple,"PortScan":C.gold,"Brute Force-Web":C.red,"Web Attacks-BF":C.cyan,"Infiltration":C.orange,"BENIGN":C.green};
-
-    return<div style={{padding:18}}>
-      {/* Sub-tab bar */}
-      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
-        {[["overview","⬡ MODEL OVERVIEW"],["classifier","⚡ LIVE AI CLASSIFIER"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setMlTab(k)}
-            style={{padding:"5px 16px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",
-              border:`1px solid ${mlTab===k?C.cyan:"transparent"}`,
-              background:mlTab===k?`${C.cyan}18`:"transparent",
-              color:mlTab===k?C.cyan:C.textDim,cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
-            {l}
-          </button>
-        ))}
-      </div>
-
-      {/* OVERVIEW */}
-      {mlTab==="overview"&&<>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:14}}>
-          {ML_MODELS_DATA.map(m=>(
-            <div key={m.name} style={{background:C.panel,border:`1px solid ${C.border}`,padding:14,position:"relative",borderTop:`2px solid ${m.color}`}}>
-              <PanelCorners color={m.color}/>
-              <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:11,color:m.color,letterSpacing:1,marginBottom:3}}>{m.name}</div>
-              <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.textLabel,letterSpacing:2,marginBottom:10}}>{m.type}</div>
-              {m.metrics.map(x=>(
-                <div key={x.l} style={{marginBottom:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                    <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>{x.l}</span>
-                    <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:m.color}}>{x.v}%</span>
-                  </div>
-                  <BarFill pct={x.v} color={m.color}/>
-                </div>
-              ))}
-              <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,lineHeight:1.7,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}>{m.desc}</div>
-            </div>
-          ))}
-        </div>
-        {/* Comparison table */}
-        <Panel color={C.cyan}>
-          <PTitle>⬡ Model Performance Comparison — CICIDS-2018 Test Set</PTitle>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
-              <thead>
-                <tr style={{borderBottom:`1px solid ${C.borderBright}`}}>
-                  {["MODEL","TYPE","ACCURACY","AUC-ROC","FPR","SPEED","STATUS"].map(h=>(
-                    <th key={h} style={{padding:"7px 10px",textAlign:"left",fontSize:8,letterSpacing:2,color:C.textLabel,fontWeight:400}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  {name:"Random Forest",type:"Supervised",acc:"97.4%",auc:"98.2%",fpr:"2.1%",speed:"Fast",status:"DEPLOYED",sc:C.green},
-                  {name:"XGBoost",type:"Supervised",acc:"98.1%",auc:"99.8%",fpr:"1.8%",speed:"Fast",status:"DEPLOYED",sc:C.green},
-                  {name:"Isolation Forest",type:"Unsupervised",acc:"97.0%",auc:"96.5%",fpr:"2.1%",speed:"Fast",status:"DEPLOYED",sc:C.green},
-                  {name:"LSTM",type:"Deep Learning",acc:"96.2%",auc:"97.1%",fpr:"2.9%",speed:"Medium",status:"DEPLOYED",sc:C.green},
-                  {name:"K-Means",type:"Clustering",acc:"82.0%",auc:"85.3%",fpr:"6.2%",speed:"Fast",status:"SUPPORT",sc:C.cyan},
-                  {name:"Ensemble Voter",type:"Meta",acc:"98.6%",auc:"99.4%",fpr:"1.2%",speed:"Fast",status:"PRIMARY",sc:C.cyan},
-                ].map(r=>(
-                  <tr key={r.name} style={{borderBottom:`1px solid ${C.border}`}}>
-                    <td style={{padding:"8px 10px",color:C.text,fontWeight:700}}>{r.name}</td>
-                    <td style={{padding:"8px 10px",color:C.textDim}}>{r.type}</td>
-                    <td style={{padding:"8px 10px",color:C.cyan}}>{r.acc}</td>
-                    <td style={{padding:"8px 10px",color:C.green}}>{r.auc}</td>
-                    <td style={{padding:"8px 10px",color:C.orange}}>{r.fpr}</td>
-                    <td style={{padding:"8px 10px",color:C.textDim}}>{r.speed}</td>
-                    <td style={{padding:"8px 10px"}}>
-                      <span style={{padding:"2px 8px",fontSize:8,letterSpacing:1,
-                        background:`${r.sc}18`,color:r.sc,border:`1px solid ${r.sc}`,
-                        fontFamily:"'Share Tech Mono',monospace"}}>{r.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-      </>}
-
-      {/* LIVE CLASSIFIER */}
-      {mlTab==="classifier"&&<div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:14}}>
-        {/* LEFT */}
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <Panel color={C.cyan}>
-            <PTitle>⬡ Traffic Preset</PTitle>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              {ML_PRESETS.map(p=>(
-                <button key={p.label} onClick={()=>loadPreset(p)}
-                  style={{padding:"6px 10px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:1,
-                    textAlign:"left",cursor:"pointer",textTransform:"uppercase",transition:"all .15s",
-                    border:`1px solid ${mlFields.label===p.label?C.cyan:C.borderBright}`,
-                    background:mlFields.label===p.label?`${C.cyan}18`:C.card,
-                    color:mlFields.label===p.label?C.cyan:C.textDim}}>
-                  {mlFields.label===p.label?"▶ ":""}{p.label}
-                </button>
-              ))}
-            </div>
-          </Panel>
-          <Panel color={C.purple}>
-            <PTitle>⬡ CICIDS Flow Features</PTitle>
-            {ML_FIELDS.map(f=>(
-              <div key={f.k} style={{marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>{f.l}</span>
-                  <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.cyan}}>{mlFields[f.k]}{f.unit?` ${f.unit}`:""}</span>
-                </div>
-                <input type="range" min={f.min} max={f.max} step={f.step} value={mlFields[f.k]}
-                  onChange={e=>setF(f.k,e.target.value)}
-                  style={{width:"100%",accentColor:C.purple,height:3,cursor:"pointer",
-                    WebkitAppearance:"none",appearance:"none",background:"#0f2030",outline:"none"}}/>
-              </div>
-            ))}
-            <Btn color={C.purple} onClick={runClassifier} disabled={mlLoading}
-              style={{width:"100%",justifyContent:"center",marginTop:4,letterSpacing:2}}>
-              {mlLoading?"⬡ CLASSIFYING...":"⚡ RUN ENSEMBLE CLASSIFIER"}
-            </Btn>
-          </Panel>
-        </div>
-
-        {/* RIGHT */}
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {!mlResult&&!mlLoading&&(
-            <Panel style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:160}}>
-              <div style={{textAlign:"center",color:C.textLabel,fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
-                <div style={{fontSize:24,marginBottom:8,opacity:.3}}>⬡</div>
-                Configure flow features and run classifier
-              </div>
-            </Panel>
-          )}
-          {mlLoading&&(
-            <Panel color={C.orange} style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:120}}>
-              <div style={{textAlign:"center"}}>
-                <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.orange,letterSpacing:2,marginBottom:6}}>⬡ ENSEMBLE MODELS PROCESSING</div>
-                <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim}}>RF → XGBoost → LSTM → Isolation Forest → Voter</div>
-              </div>
-            </Panel>
-          )}
-          {mlResult&&mlResult.error&&(
-            <Panel color={C.red}><div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.red}}>{mlResult.error}</div></Panel>
-          )}
-          {mlResult&&!mlResult.error&&<>
-            {/* Verdict */}
-            <div style={{background:C.panel,border:`1px solid ${sc}`,padding:14,position:"relative"}}>
-              <PanelCorners color={sc}/>
-              <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:sc,boxShadow:`0 0 10px ${sc}`}}/>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:10}}>
-                <div>
-                  <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:2,color:C.textLabel,marginBottom:4}}>ENSEMBLE VERDICT</div>
-                  <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:20,fontWeight:700,color:sc,letterSpacing:2,textShadow:`0 0 12px ${sc}88`}}>{mlResult.label}</div>
-                  <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDim,marginTop:3}}>{mlResult.mitre_id} — {mlResult.mitre_tactic}</div>
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  {[["CONFIDENCE",`${mlResult.confidence}%`],["THREAT SCORE",mlResult.threat_score],["DECISION",mlResult.status]].map(([l,v])=>(
-                    <div key={l} style={{background:C.card,border:`1px solid ${l==="DECISION"?sc:C.border}`,padding:"8px 14px",textAlign:"center"}}>
-                      <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.textLabel,letterSpacing:1.5,marginBottom:4}}>{l}</div>
-                      <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:16,fontWeight:700,color:sc,textShadow:`0 0 8px ${sc}88`}}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.7,borderTop:`1px solid ${C.border}`,paddingTop:8}}>{mlResult.explanation}</div>
-            </div>
-            {/* Model votes */}
-            {mlResult.model_votes&&(
-              <Panel color={C.purple}>
-                <PTitle>⬡ Individual Model Votes</PTitle>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
-                  {[{name:"Random Forest",key:"random_forest",color:C.cyan},{name:"XGBoost",key:"xgboost",color:C.cyan},{name:"Isolation Forest",key:"isolation_forest",color:C.red},{name:"LSTM",key:"lstm",color:C.purple},{name:"Ensemble",key:"ensemble",color:C.green}].map(({name,key,color})=>{
-                    const v=mlResult.model_votes[key]||{};
-                    const conf=v.confidence??(v.anomaly_score!=null?Math.round(v.anomaly_score*100):0);
-                    return<div key={key} style={{background:C.card,border:`1px solid ${color}33`,borderTop:`2px solid ${color}`,padding:"8px 10px"}}>
-                      <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:color,letterSpacing:1,marginBottom:4}}>{name}</div>
-                      <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.text,marginBottom:5,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{v.label||"—"}</div>
-                      <BarFill pct={conf} color={color}/>
-                      <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:color,marginTop:3}}>{conf}%</div>
-                    </div>;
-                  })}
-                </div>
-              </Panel>
-            )}
-            {/* Top features */}
-            {mlResult.top_features&&(
-              <Panel color={C.red}>
-                <PTitle>⬡ Key Feature Contributions</PTitle>
-                {mlResult.top_features.map((f,i)=>(
-                  <div key={i} style={{display:"flex",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
-                    <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.red,flexShrink:0}}>{i+1}.</span>
-                    <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,lineHeight:1.5}}>{f}</span>
-                  </div>
-                ))}
-              </Panel>
-            )}
-          </>}
-          {/* History */}
-          {mlHistory.length>0&&(
-            <Panel color={C.teal}>
-              <PTitle>⬡ Classification History</PTitle>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'Share Tech Mono',monospace",fontSize:9}}>
-                  <thead><tr style={{borderBottom:`1px solid ${C.borderBright}`}}>
-                    {["TIME","BYTES/S","LABEL","CONF","SCORE","STATUS"].map(h=>(
-                      <th key={h} style={{padding:"5px 8px",textAlign:"left",fontSize:8,letterSpacing:1.5,color:C.textLabel,fontWeight:400}}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {mlHistory.map((h,i)=>{
-                      const hsc=h.status==="BLOCKED"?C.red:h.status==="MONITOR"?C.orange:C.green;
-                      return<tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:"6px 8px",color:C.textLabel}}>{h.ts}</td>
-                        <td style={{padding:"6px 8px",color:C.textDim}}>{fmtBps(h.flowBytes||0)}</td>
-                        <td style={{padding:"6px 8px",color:LABEL_C[h.label]||C.textDim}}>{h.label}</td>
-                        <td style={{padding:"6px 8px",color:C.cyan}}>{h.confidence}%</td>
-                        <td style={{padding:"6px 8px",color:C.orange}}>{h.threat_score}</td>
-                        <td style={{padding:"6px 8px",color:hsc,fontWeight:700}}>{h.status}</td>
-                      </tr>;
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
-          )}
-        </div>
-      </div>}
-    </div>;
-  }
-
-
   function DashboardTab(){
     return<>
       <MetricCards/>
@@ -1396,297 +1691,6 @@ export default function CipherNest(){
   }
 
   /* ─── AI ANALYSIS TAB ─── */
-  function AIAnalysisTab(){
-    const[query,setQuery]=useState("");
-    const[output,setOutput]=useState("");
-    const[streaming,setStreaming]=useState(false);
-    const[history,setHistory]=useState([]);
-    const[activePreset,setActivePreset]=useState(null);
-
-    const PRESETS=[
-      {label:"Summarize Session",prompt:"Summarize the current CipherNest monitoring session. Include threat distribution, top attack types, notable anomalies, and recommended actions."},
-      {label:"MITRE ATT&CK Map",prompt:"Map the detected attack types in this session to MITRE ATT&CK tactics and techniques. Format as a structured list with tactic, technique ID, and brief description."},
-      {label:"Risk Assessment",prompt:"Provide a detailed risk assessment for this network session. Rate overall risk level (Critical/High/Medium/Low), explain the top 3 threat vectors, and suggest immediate remediation steps."},
-      {label:"Threat Trends",prompt:"Analyze the threat trends visible in this session. Identify patterns, escalation signals, and any indicators of a coordinated multi-vector attack campaign."},
-      {label:"SOC Report",prompt:"Write a professional SOC (Security Operations Center) incident report for this session, suitable for management review. Include executive summary, key findings, and next steps."},
-    ];
-
-    const sessionContext=`Current CipherNest session data:\n- Total flows: ${totalThreats+totalBenign}\n- Threats detected: ${totalThreats}\n- Benign flows: ${totalBenign}\n- Avg anomaly score: ${anomScores.length?(anomScores.slice(-50).reduce((a,b)=>a+b,0)/Math.min(50,anomScores.length)).toFixed(3):"0.000"}\n- Label breakdown: ${JSON.stringify(Object.entries(labelCounts).slice(0,10))}\n- Top blocked IPs: ${blockedIPs.length}\n- Agent statuses: ${JSON.stringify(agentStatus)}\n- Recent alerts (last 5): ${JSON.stringify(alerts.slice(0,5).map(a=>({label:a.label,port:a.port,score:a.score.toFixed(3)})))}\n`;
-
-    async function runQuery(q){
-      if(!q.trim()||streaming)return;
-      setStreaming(true);setOutput("");
-      const fullPrompt=`You are an expert AI cybersecurity analyst embedded in the CipherNest threat intelligence platform.\n\n${sessionContext}\n\nUser query: ${q}\n\nRespond with a professional, structured analysis. Use clear sections where appropriate.`;
-      let txt="";
-      await streamClaude(fullPrompt,tok=>{txt+=tok;setOutput(p=>p+tok);},()=>{
-        setStreaming(false);
-        setHistory(h=>[{q,a:txt,ts:nowUTC()},...h.slice(0,9)]);
-        setOutput("");
-        setHistory(h=>{if(h[0]&&!h[0].a)return[{...h[0],a:txt},...h.slice(1)];return h;});
-      },800);
-    }
-
-    const lastResult=history[0];
-
-    return<div style={{padding:18,display:"grid",gridTemplateColumns:"300px 1fr",gap:14,alignItems:"start"}}>
-      {/* LEFT PANEL */}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <Panel color={C.cyan}>
-          <PTitle>⬡ Session Context</PTitle>
-          {[
-            {l:"TOTAL FLOWS",v:(totalThreats+totalBenign).toLocaleString(),c:C.cyan},
-            {l:"THREATS",v:totalThreats.toLocaleString(),c:C.red},
-            {l:"BENIGN",v:totalBenign.toLocaleString(),c:C.green},
-            {l:"BLOCKED IPs",v:blockedIPs.length,c:C.orange},
-            {l:"AVG SCORE",v:anomScores.length?(anomScores.slice(-50).reduce((a,b)=>a+b,0)/Math.min(50,anomScores.length)).toFixed(3):"—",c:C.purple},
-          ].map(m=>(
-            <div key={m.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,letterSpacing:1}}>{m.l}</span>
-              <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:m.c,fontWeight:700}}>{m.v}</span>
-            </div>
-          ))}
-        </Panel>
-        <Panel color={C.purple}>
-          <PTitle>⚡ Quick Analysis Presets</PTitle>
-          <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            {PRESETS.map(p=>(
-              <button key={p.label} onClick={()=>{setActivePreset(p.label);setQuery(p.prompt);}}
-                style={{padding:"7px 10px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,
-                  letterSpacing:1,textAlign:"left",cursor:"pointer",textTransform:"uppercase",transition:"all .15s",
-                  border:`1px solid ${activePreset===p.label?C.purple:C.borderBright}`,
-                  background:activePreset===p.label?`${C.purple}22`:C.card,
-                  color:activePreset===p.label?C.purple:C.textDim}}>
-                {activePreset===p.label?"▶ ":""}{p.label}
-              </button>
-            ))}
-          </div>
-        </Panel>
-        {history.length>0&&(
-          <Panel color={C.teal}>
-            <PTitle>⬡ Query History</PTitle>
-            <div style={{maxHeight:240,overflowY:"auto"}}>
-              {history.map((h,i)=>(
-                <div key={i} onClick={()=>{setQuery(h.q);setActivePreset(null);}}
-                  style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
-                  <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:2}}>{h.ts}</div>
-                  <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.teal,
-                    overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{h.q.slice(0,50)}...</div>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        )}
-      </div>
-
-      {/* RIGHT PANEL */}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <Panel color={C.cyan}>
-          <PTitle>🤖 AI Cybersecurity Analyst</PTitle>
-          <div style={{display:"flex",gap:8,marginBottom:10}}>
-            <textarea value={query} onChange={e=>setQuery(e.target.value)}
-              placeholder="Ask anything about this session — threat analysis, MITRE mapping, risk assessment, SOC report..."
-              rows={3}
-              style={{flex:1,padding:"10px 12px",background:C.card,border:`1px solid ${C.borderBright}`,
-                color:C.text,fontFamily:"'Share Tech Mono',monospace",fontSize:11,outline:"none",
-                resize:"vertical",lineHeight:1.7}}/>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>runQuery(query)} disabled={streaming||!query.trim()}
-              style={{padding:"9px 20px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,
-                border:`1px solid ${streaming?C.borderBright:C.cyan}`,
-                background:streaming?C.card:`${C.cyan}18`,
-                color:streaming?C.textLabel:C.cyan,cursor:streaming?"not-allowed":"pointer",transition:"all .2s"}}>
-              {streaming?"⬡ ANALYZING...":"⚡ RUN ANALYSIS"}
-            </button>
-            <button onClick={()=>{setQuery("");setActivePreset(null);setOutput("");}}
-              style={{padding:"9px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:1,
-                border:`1px solid ${C.borderBright}`,background:"transparent",
-                color:C.textDim,cursor:"pointer"}}>
-              CLEAR
-            </button>
-          </div>
-        </Panel>
-
-        {(streaming||output)&&(
-          <Panel color={C.purple}>
-            <PTitle>
-              <span style={{width:8,height:8,borderRadius:"50%",background:C.purple,
-                boxShadow:`0 0 10px ${C.purple}`,display:"inline-block",
-                animation:streaming?"blink 1s step-end infinite":"none"}}/>
-              AI ANALYSIS OUTPUT
-            </PTitle>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
-              lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
-              padding:14,minHeight:80}}>
-              {output||lastResult?.a||""}
-              {streaming&&<span style={{animation:"blink 1s step-end infinite",color:C.purple}}>▋</span>}
-            </div>
-          </Panel>
-        )}
-
-        {!streaming&&!output&&lastResult&&(
-          <Panel color={C.teal}>
-            <PTitle>⬡ LAST ANALYSIS — {lastResult.ts}</PTitle>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textLabel,marginBottom:8}}>
-              Query: <span style={{color:C.teal}}>{lastResult.q.slice(0,100)}{lastResult.q.length>100?"...":""}</span>
-            </div>
-            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:C.text,
-              lineHeight:1.9,whiteSpace:"pre-wrap",background:C.card,border:`1px solid ${C.borderBright}`,
-              padding:14,maxHeight:400,overflowY:"auto"}}>
-              {lastResult.a}
-            </div>
-          </Panel>
-        )}
-
-        {!streaming&&!output&&!lastResult&&(
-          <Panel style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}>
-            <div style={{textAlign:"center",color:C.textLabel,fontFamily:"'Share Tech Mono',monospace",fontSize:10}}>
-              <div style={{fontSize:32,marginBottom:10,opacity:.25}}>🤖</div>
-              <div style={{letterSpacing:2,marginBottom:6}}>AI ANALYST READY</div>
-              <div style={{fontSize:9,color:C.textLabel,maxWidth:300,lineHeight:1.7}}>
-                Select a preset or type a custom query to get real-time AI analysis of your session data.
-              </div>
-            </div>
-          </Panel>
-        )}
-      </div>
-    </div>;
-  }
-
-
-  return(
-    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Rajdhani',sans-serif",
-      fontSize:13,color:C.text,overflow:"hidden",position:"relative",...isSimBorder}}>
-      <style>{CSS}</style>
-
-      {lockdown&&<div style={{position:"fixed",inset:0,zIndex:9000,pointerEvents:"none",display:"flex",alignItems:"stretch"}}>
-        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
-        <div style={{flex:1,background:"rgba(255,45,85,0.06)"}}/>
-        <div style={{width:12,background:C.red,animation:"lockFlash .3s ease-in-out infinite",boxShadow:`0 0 30px ${C.red}`}}/>
-        <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
-        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:C.red,animation:"lockFlash .3s ease-in-out infinite"}}/>
-        <div style={{position:"absolute",top:"42%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"all"}}>
-          <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:26,fontWeight:900,color:C.red,
-            textShadow:`0 0 30px ${C.red}`,letterSpacing:5,animation:"lockFlash .3s ease-in-out infinite",marginBottom:16}}>
-            ⚠ FORCE LOCKDOWN ACTIVE
-          </div>
-          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:11,color:"#ff6688",letterSpacing:2,marginBottom:16}}>
-            ALL CONNECTIONS SEVERED — PERIMETER ISOLATED
-          </div>
-          <button onClick={()=>setLockdown(false)}
-            style={{padding:"8px 24px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,letterSpacing:2,
-              border:`1px solid ${C.red}`,background:"rgba(255,45,85,.2)",color:"#ff8899",
-              cursor:"pointer",textTransform:"uppercase"}}>
-            CANCEL LOCKDOWN
-          </button>
-        </div>
-      </div>}
-
-      {showSimModal&&<SimModal onStart={startSim} onClose={()=>setShowSimModal(false)}/>}
-
-      {/* TOPBAR */}
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 18px",
-        height:50,background:"#040710",borderBottom:`1px solid ${C.border}`,
-        position:"sticky",top:0,zIndex:100,flexWrap:"wrap"}}>
-        <div style={{display:"flex",alignItems:"center",gap:9,fontFamily:"'Orbitron',sans-serif",
-          fontSize:17,fontWeight:900,color:C.cyan,letterSpacing:3,flexShrink:0}}>
-          <div style={{width:28,height:28,background:C.cyan,
-            clipPath:"polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
-            boxShadow:`0 0 18px ${C.cyan}`,animation:"hexPulse 3s ease-in-out infinite"}}/>
-          CIPHERNEST
-        </div>
-        <div style={{display:"flex",gap:3,marginLeft:16}}>
-          {[["dashboard","Dashboard"],["simulation","Simulation"],["reports","Reports"],["agents","Agents Manager"],["ml","ML Models"],["aianalysis","AI Analysis"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTab(t)}
-              style={{padding:"5px 14px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
-                letterSpacing:"1.5px",color:tab===t?C.cyan:C.textDim,
-                border:`1px solid ${tab===t?C.cyan:"transparent"}`,
-                background:tab===t?`${C.cyan}18`:"transparent",
-                cursor:"pointer",textTransform:"uppercase",transition:"all .2s"}}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto",flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,fontFamily:"'Share Tech Mono',monospace",
-            fontSize:9,color:isSimMode?C.purple:C.cyan}}>
-            {isSimMode?"SIMULATION":"LIVE"}
-            <div onClick={handleModeToggle}
-              style={{width:36,height:18,borderRadius:9,position:"relative",cursor:"pointer",
-                background:isSimMode?C.purple:C.cyan,
-                boxShadow:`0 0 10px ${isSimMode?C.purple:C.cyan}`,transition:"background .3s"}}>
-              <span style={{position:"absolute",top:3,width:12,height:12,borderRadius:"50%",
-                background:"#fff",transition:"right .3s",right:isSimMode?3:19}}/>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
-            border:`1px solid ${C.green}`,fontFamily:"'Share Tech Mono',monospace",
-            fontSize:9,letterSpacing:"1.5px",color:C.green}}>
-            <Dot color={C.green}/> ALL SYSTEMS NOMINAL
-          </div>
-          <LiveClock/>
-          <div style={{padding:"4px 12px",background:`${C.red}11`,border:`1px solid ${C.red}`,
-            fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:"1.5px",color:C.red,
-            animation:"pulseRed 2s ease-in-out infinite"}}>
-            ⚠ {totalThreats>50?"CRITICAL":totalThreats>10?"HIGH":"MEDIUM"}
-          </div>
-        </div>
-      </div>
-
-      {/* TICKER */}
-      <div style={{background:"#030608",borderBottom:`1px solid ${C.border}`,
-        padding:"5px 18px",fontFamily:"'Share Tech Mono',monospace",fontSize:10,
-        color:C.textDim,display:"flex",alignItems:"center",gap:6,overflow:"hidden",whiteSpace:"nowrap"}}>
-        <Dot color={isSimMode?C.purple:C.cyan}/>
-        <span style={{animation:"ticker 45s linear infinite",display:"inline-block"}}>
-          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
-          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
-          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
-          {" "}· CLASSIFIER: <span style={{color:C.green}}>{agentStatus.clf}</span>
-          {" "}· ANALYZER: <span style={{color:C.purple}}>{agentStatus.ana}</span>
-          {" "}· LOG_ANALYZER: <span style={{color:C.teal}}>{agentStatus.log}</span>
-          {" "}· THREAT_DETECT: <span style={{color:C.red}}>{agentStatus.det}</span>
-          {" "}· ORCHESTRATOR: <span style={{color:C.gold}}>{agentStatus.orch}</span>
-          {" "}· Blocked IPs: <span style={{color:C.red}}>{blockedIPs.length}</span>
-          &nbsp;&nbsp;&nbsp;
-          {isSimMode?"● SIM MODE — ":"● LIVE MODE — "}
-          <span style={{color:C.cyan}}>{totalFlows.toLocaleString()} flows</span>
-          {" "}· Threats: <span style={{color:C.red}}>{totalThreats.toLocaleString()}</span>
-        </span>
-      </div>
-
-      {/* AGENT STATUS BAR */}
-      <div style={{display:"flex",alignItems:"center",gap:12,padding:"7px 18px",
-        background:"#050a10",borderBottom:`1px solid ${C.border}`,
-        fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textDim,flexWrap:"wrap"}}>
-        <span style={{fontSize:9,color:C.textLabel,letterSpacing:2}}>AGENTS:</span>
-        {AGENTS.map(a=>{
-          const s=agentStatus[a.id];
-          const sc=s==="STANDBY"?C.textDim:s==="COMPLETE"?C.green:a.color;
-          return<div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",
-            border:`1px solid ${C.borderBright}`,background:C.card}}>
-            <span style={{fontSize:9,color:a.color}}>{a.label}</span>
-            <Dot color={sc} pulse={s!=="STANDBY"&&s!=="COMPLETE"}/>
-            <span style={{fontSize:9,color:sc}}>{s}</span>
-          </div>;
-        })}
-        <span style={{marginLeft:"auto",fontSize:9,color:C.textLabel}}>
-          {totalFlows.toLocaleString()} flows · {blockedIPs.length} blocked
-        </span>
-      </div>
-
-      {/* TAB CONTENT */}
-      <div style={{overflowY:"auto",maxHeight:"calc(100vh - 138px)"}}>
-        {tab==="dashboard"&&<DashboardTab/>}
-        {tab==="simulation"&&<SimulationTab/>}
-        {tab==="reports"&&<ReportsTab/>}
-        {tab==="agents"&&<AgentsManagerTab/>}
-        {tab==="ml"&&<MLModelsTab/>}
-        {tab==="aianalysis"&&<AIAnalysisTab/>}
-      </div>
-    </div>
-  );
-
   function MetricCards(){
     return<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"12px 18px"}}>
       {[
